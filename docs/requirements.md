@@ -45,12 +45,22 @@ A deterministic HTTP test places three requests immediately before an aligned on
 
 This phase records the behavior without changing the algorithm. The measured burst will justify selecting and comparing a smoother algorithm in the next phase.
 
+## V4: sliding-log enforcement
+
+The application now uses an in-memory sliding log. Each client/resource policy keeps the timestamp and weighted cost of approved requests that remain inside the rolling interval.
+
+- Requests do not receive fresh capacity merely because an aligned boundary was crossed.
+- Expired request entries are removed before each decision.
+- The capacity check and request recording remain one atomic operation.
+- Fixed-window and sliding-log types remain isolated in their own implementation files.
+- The public limiter contract and HTTP API are unchanged.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- Fixed windows permit boundary bursts; the next phase will compare an algorithm that smooths traffic across boundaries.
-- Counters grow without cleanup and disappear on restart.
+- Sliding-log state grows with the number of approved requests inside the active interval; the next phase will measure that cost.
+- In-memory state disappears on restart.
 - Separate processes do not share state, so this is not yet a global limiter.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
 - Load, performance, and race-condition tests are deferred until their corresponding failure milestones. Ordinary correctness tests belong to V1.
@@ -59,7 +69,7 @@ The service is not production-ready:
 
 - Requests through a known policy are allowed until its capacity is exhausted.
 - The next request receives HTTP 429 and a positive `retry_after_ms`.
-- Capacity resets at the next aligned window boundary.
+- Capacity returns as approved costs leave the rolling window.
 - Client/resource counters remain independent.
 - Weighted costs are atomic in sequential execution; rejected costs do not consume capacity.
 - `go test ./...` passes.

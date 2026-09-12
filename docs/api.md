@@ -1,4 +1,4 @@
-# HTTP API contract (V1)
+# HTTP API contract
 
 ## `POST /v1/check`
 
@@ -28,6 +28,8 @@ Allowed response (`200 OK`):
 
 Denied response (`429 Too Many Requests`) uses the same schema with `allowed: false` and a positive `retry_after_ms`. A denied request does not consume quota.
 
+`reset_at` is the next time recorded usage expires. For a denied weighted request, it is the earliest time enough capacity becomes available for that complete cost.
+
 Errors use `{ "error": "message" }`:
 
 - `400` for invalid JSON or missing/invalid fields.
@@ -46,4 +48,4 @@ Returns `200 OK` with the service status, environment, and version:
 }
 ```
 
-In V1 this is only a process liveness signal.
+This is only a process liveness signal.
