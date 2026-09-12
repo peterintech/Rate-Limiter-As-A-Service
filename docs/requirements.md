@@ -39,11 +39,17 @@ A concurrent HTTP workload demonstrated that the unsynchronized limiter could cr
 - Synchronization remains an implementation detail of the fixed-window algorithm.
 - The public limiter contract and HTTP API are unchanged.
 
+## V3: fixed-window boundary burst
+
+A deterministic HTTP test places three requests immediately before an aligned one-minute boundary and three immediately after it. The fixed-window limiter approves all six requests within 200 milliseconds even though the configured limit is three requests per minute.
+
+This phase records the behavior without changing the algorithm. The measured burst will justify selecting and comparing a smoother algorithm in the next phase.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- Fixed windows permit boundary bursts; a later experiment will make that behavior measurable before comparing algorithms.
+- Fixed windows permit boundary bursts; the next phase will compare an algorithm that smooths traffic across boundaries.
 - Counters grow without cleanup and disappear on restart.
 - Separate processes do not share state, so this is not yet a global limiter.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.

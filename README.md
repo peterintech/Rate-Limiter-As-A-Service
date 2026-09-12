@@ -2,7 +2,7 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V2
+## Current scope: V3
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -12,6 +12,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - An HTTP test that exercises the configured limiter through quota exhaustion
 - Atomic rate-limit decisions within one process
 - A concurrent HTTP test that verifies the configured limit is not exceeded
+- A deterministic boundary test that demonstrates fixed-window bursting
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
 Not included yet: Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
@@ -56,4 +57,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-The next phase will measure the burst allowed across a fixed-window boundary before introducing or comparing another algorithm.
+The next phase will use the measured boundary burst to select and compare an algorithm that smooths traffic across window boundaries.
