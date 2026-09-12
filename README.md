@@ -1,8 +1,8 @@
 # Global Rate Limiter
 
-An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter, but the current `V1` is deliberately a naive single-process fixed-window limiter. Each later component must be justified by a demonstrated failure in the preceding version.
+An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V0/V1
+## Current scope: V2
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -10,9 +10,11 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - Static per-client/resource policies
 - In-memory aligned fixed-window counters
 - An HTTP test that exercises the configured limiter through quota exhaustion
+- Atomic rate-limit decisions within one process
+- A concurrent HTTP test that verifies the configured limit is not exceeded
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: synchronization, Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
+Not included yet: Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
 
 ## Run
 
@@ -36,16 +38,17 @@ The demo policies are `client-a/openai` at 100 requests/minute and `client-b/str
 
 ```bash
 go test ./...
+go test -race ./...
 ```
 
-Do not treat `go test -race ./...` as a V1 acceptance check. The lack of synchronization is intentional and is the failure V2 will make reproducible before fixing it.
+The race test requires a race-enabled Go toolchain with a C compiler installed.
 
 ## Repository layout
 
 ```text
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
 internal/env/             environment lookup helper
-internal/ratelimiter/     limiter interface and V1 fixed-window implementation
+internal/ratelimiter/     limiter interface and fixed-window implementation
 docs/                     requirements and API contract
 ```
 
@@ -53,4 +56,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-V2 will add a repeatable concurrent workload that exposes V1's race/correctness failure. Only then will synchronization be introduced and benchmarked.
+The next phase will measure the burst allowed across a fixed-window boundary before introducing or comparing another algorithm.

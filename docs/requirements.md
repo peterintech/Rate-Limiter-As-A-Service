@@ -30,18 +30,26 @@ The project follows the same wiring pattern as Psocial:
 - Handlers depend on the narrow `ratelimiter.Limiter` interface through an `application` struct rather than constructing implementations themselves.
 - There is no service layer yet. The two handlers are small enough to orchestrate their use cases directly.
 
+## V2: concurrent safety
+
+A concurrent HTTP workload demonstrated that the unsynchronized limiter could crash with `fatal error: concurrent map writes`. The fixed-window implementation now keeps each read, capacity check, and spend in one critical section.
+
+- Concurrent requests cannot corrupt the in-memory window map.
+- A policy cannot allow more than its configured capacity within a window.
+- Synchronization remains an implementation detail of the fixed-window algorithm.
+- The public limiter contract and HTTP API are unchanged.
+
 ## Intentionally unmet requirements
 
-V1 is not production-ready:
+The service is not production-ready:
 
-- The map is deliberately unsynchronized. Concurrent HTTP requests may race; V2 will demonstrate this with the Go race detector before adding synchronization.
 - Fixed windows permit boundary bursts; a later experiment will make that behavior measurable before comparing algorithms.
 - Counters grow without cleanup and disappear on restart.
 - Separate processes do not share state, so this is not yet a global limiter.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
 - Load, performance, and race-condition tests are deferred until their corresponding failure milestones. Ordinary correctness tests belong to V1.
 
-## V1 acceptance criteria
+## Current acceptance criteria
 
 - Requests through a known policy are allowed until its capacity is exhausted.
 - The next request receives HTTP 429 and a positive `retry_after_ms`.
@@ -49,4 +57,5 @@ V1 is not production-ready:
 - Client/resource counters remain independent.
 - Weighted costs are atomic in sequential execution; rejected costs do not consume capacity.
 - `go test ./...` passes.
+- `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.
