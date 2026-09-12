@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type FixedWindowRateLimiter struct {
 	policies FixedWindowPolicies
 	windows  map[Key]fixedWindow
 	now      func() time.Time
+	mutex    sync.Mutex
 }
 
 func NewFixedWindowRateLimiter(policies FixedWindowPolicies, now func() time.Time) (*FixedWindowRateLimiter, error) {
@@ -52,6 +54,10 @@ func (l *FixedWindowRateLimiter) Allow(ctx context.Context, key Key, cost int) (
 	if !exists {
 		return Decision{}, ErrNoPolicy
 	}
+
+	// Keep reading, checking, and updating a window as one atomic operation.
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
 	now := l.now()
 	window := l.windowFor(key, policy, now)
