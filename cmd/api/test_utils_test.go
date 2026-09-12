@@ -11,10 +11,10 @@ import (
 	"go.uber.org/zap"
 )
 
-func newTestApplication(t *testing.T, cfg config) *application {
+func newTestApplication(t *testing.T, cfg config, now func() time.Time) *application {
 	t.Helper()
 
-	limiter, err := ratelimiter.NewFixedWindowRateLimiter(cfg.fixedWindowPolicies, time.Now)
+	limiter, err := ratelimiter.NewFixedWindowRateLimiter(cfg.fixedWindowPolicies, now)
 	if err != nil {
 		t.Fatal(err)
 	}
