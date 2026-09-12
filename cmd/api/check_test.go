@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,7 +36,7 @@ func TestRateLimiter(t *testing.T) {
 		if req > limit {
 			expectedStatus = http.StatusTooManyRequests
 		}
-		checkResponseCode(t, expectedStatus, response.Code)
+		checkResponse(t, "response code", expectedStatus, response.Code)
 	}
 }
 
@@ -56,15 +54,11 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 	app := newTestApplication(t, cfg)
 	mux := app.mount()
 
-	var allowed atomic.Int32
-	var rejected atomic.Int32
-	var requestsGroup sync.WaitGroup
 	start := make(chan struct{})
+	results := make(chan int, requests)
 
 	for range requests {
-		requestsGroup.Add(1)
 		go func() {
-			defer requestsGroup.Done()
 			<-start
 
 			request := httptest.NewRequest(
@@ -73,25 +67,25 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 				bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
 			)
 			response := executeRequest(request, mux)
-
-			switch response.Code {
-			case http.StatusOK:
-				allowed.Add(1)
-			case http.StatusTooManyRequests:
-				rejected.Add(1)
-			default:
-				t.Errorf("unexpected response code %d", response.Code)
-			}
+			results <- response.Code
 		}()
 	}
 
 	close(start)
-	requestsGroup.Wait()
 
-	if got := int(allowed.Load()); got != limit {
-		t.Errorf("expected %d allowed requests; got %d", limit, got)
+	allowed := 0
+	rejected := 0
+	for range requests {
+		switch status := <-results; status {
+		case http.StatusOK:
+			allowed++
+		case http.StatusTooManyRequests:
+			rejected++
+		default:
+			t.Errorf("unexpected response code %d", status)
+		}
 	}
-	if got := int(rejected.Load()); got != requests-limit {
-		t.Errorf("expected %d rejected requests; got %d", requests-limit, got)
-	}
+
+	checkResponse(t, "allowed requests", limit, allowed)
+	checkResponse(t, "rejected requests", requests-limit, rejected)
 }

@@ -32,9 +32,9 @@ func executeRequest(req *http.Request, mux *chi.Mux) *httptest.ResponseRecorder 
 	return recorder
 }
 
-func checkResponseCode(t *testing.T, expected, actual int) {
+func checkResponse(t *testing.T, scope string, expected, actual int) {
 	t.Helper()
 	if expected != actual {
-		t.Errorf("expected response code %d; got %d", expected, actual)
+		t.Errorf("expected %s %d; got %d", scope, expected, actual)
 	}
 }
