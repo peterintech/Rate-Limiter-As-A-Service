@@ -14,7 +14,7 @@ import (
 func newTestApplication(t *testing.T, cfg config, now func() time.Time) *application {
 	t.Helper()
 
-	limiter, err := ratelimiter.NewFixedWindowRateLimiter(cfg.fixedWindowPolicies, now)
+	limiter, err := ratelimiter.NewSlidingLogRateLimiter(cfg.slidingLogPolicies, now)
 	if err != nil {
 		t.Fatal(err)
 	}

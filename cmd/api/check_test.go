@@ -17,7 +17,7 @@ func TestRateLimiter(t *testing.T) {
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		fixedWindowPolicies: ratelimiter.FixedWindowPolicies{
+		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
@@ -49,7 +49,7 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		fixedWindowPolicies: ratelimiter.FixedWindowPolicies{
+		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
@@ -93,20 +93,20 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 	t.Logf("concurrent requests=%d; allowed=%d; rejected=%d", requests, allowed, rejected)
 }
 
-func TestFixedWindowAllowsBoundaryBurst(t *testing.T) {
+func TestSlidingLogPreventsBoundaryBurst(t *testing.T) {
 	const limit = 3
 
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		fixedWindowPolicies: ratelimiter.FixedWindowPolicies{
+		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
 	now := time.Date(2026, time.January, 1, 12, 0, 59, 900_000_000, time.UTC)
 	app := newTestApplication(t, cfg, func() time.Time { return now })
 	mux := app.mount()
-	t.Logf("sending %d requests at %s, immediately before the window resets", limit, now.Format(time.RFC3339Nano))
+	t.Logf("sending %d requests at %s, immediately before the fixed-window boundary", limit, now.Format(time.RFC3339Nano))
 
 	for range limit {
 		request := httptest.NewRequest(
@@ -121,7 +121,7 @@ func TestFixedWindowAllowsBoundaryBurst(t *testing.T) {
 	burstInterval := 200 * time.Millisecond
 	now = now.Add(burstInterval)
 
-	t.Logf("sending %d more requests at %s, immediately after the window resets", limit, now.Format(time.RFC3339Nano))
+	t.Logf("sending %d more requests at %s, immediately after the fixed-window boundary", limit, now.Format(time.RFC3339Nano))
 
 	for range limit {
 		request := httptest.NewRequest(
@@ -130,8 +130,8 @@ func TestFixedWindowAllowsBoundaryBurst(t *testing.T) {
 			bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
 		)
 		response := executeRequest(request, mux)
-		checkResponse(t, "response code after boundary", http.StatusOK, response.Code)
+		checkResponse(t, "response code after boundary", http.StatusTooManyRequests, response.Code)
 	}
 
-	t.Logf("fixed window allowed %d requests within %s for a limit of %d per minute", limit*2, burstInterval, limit)
+	t.Logf("sliding log kept approvals at %d within %s for a limit of %d per minute", limit, burstInterval, limit)
 }
