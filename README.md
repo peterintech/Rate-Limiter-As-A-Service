@@ -2,7 +2,7 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V4
+## Current scope: V5
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -14,6 +14,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - A concurrent HTTP test that verifies the configured limit is not exceeded
 - A deterministic boundary test that demonstrates fixed-window bursting
 - A sliding-log implementation that prevents the measured boundary burst
+- A benchmark that demonstrates sliding-log state growth under load
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
 Not included yet: Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
@@ -41,14 +42,17 @@ The demo policies are `client-a/openai` at 100 requests/minute and `client-b/str
 ```bash
 go test ./...
 go test -race ./...
+go test -run '^$' -bench=BenchmarkLimiterState -benchmem -benchtime=20x ./benchmarks
 ```
 
 The race test requires a race-enabled Go toolchain with a C compiler installed.
+See [`docs/benchmarks.md`](docs/benchmarks.md) for the state-growth experiment and representative results.
 
 ## Repository layout
 
 ```text
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
+benchmarks/               focused algorithm experiments
 internal/env/             environment lookup helper
 internal/ratelimiter/     limiter contract and isolated algorithm implementations
 docs/                     requirements and API contract
@@ -58,4 +62,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-The next phase will measure the sliding log's per-request state growth before changing its storage model or adding external infrastructure.
+The next phase will introduce an in-memory token bucket and compare its bounded state with the sliding log. Redis remains deferred until independent application instances demonstrate the need for shared state.

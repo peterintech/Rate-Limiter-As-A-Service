@@ -55,11 +55,20 @@ The application now uses an in-memory sliding log. Each client/resource policy k
 - Fixed-window and sliding-log types remain isolated in their own implementation files.
 - The public limiter contract and HTTP API are unchanged.
 
+## V5: sliding-log state growth
+
+A bounded benchmark compares fixed-window and sliding-log enforcement with 100, 1,000, and 10,000 approved requests at a fixed time. Keeping time fixed ensures every sliding-log entry remains active for the complete batch.
+
+- Fixed-window allocation remains constant as request count increases.
+- Sliding-log allocation grows with the number of approved requests retained in the rolling interval.
+- The experiment changes no production behavior.
+- Token bucket remains deferred until this state-growth limitation has been demonstrated.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- Sliding-log state grows with the number of approved requests inside the active interval; the next phase will measure that cost.
+- Sliding-log state grows with the number of approved requests inside the active interval; the next phase will compare it with a bounded-state token bucket.
 - In-memory state disappears on restart.
 - Separate processes do not share state, so this is not yet a global limiter.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
