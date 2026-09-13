@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-type SlidingLogPolicy struct {
-	Limit  int
-	Window time.Duration
-}
-
-type SlidingLogPolicies map[Key]SlidingLogPolicy
+type SlidingLogPolicies map[Key]Policy
 
 type requestEntry struct {
 	at   time.Time
@@ -106,7 +101,7 @@ func validateSlidingLogPolicies(policies SlidingLogPolicies) error {
 }
 
 // activeLog removes requests that no longer count toward the rolling limit.
-func (l *SlidingLogRateLimiter) activeLog(key Key, policy SlidingLogPolicy, now time.Time) slidingLog {
+func (l *SlidingLogRateLimiter) activeLog(key Key, policy Policy, now time.Time) slidingLog {
 	log := l.logs[key]
 	cutoff := now.Add(-policy.Window)
 	firstActive := 0
@@ -121,7 +116,7 @@ func (l *SlidingLogRateLimiter) activeLog(key Key, policy SlidingLogPolicy, now 
 }
 
 // nextAvailability finds when enough recorded cost expires for the request.
-func nextAvailability(log slidingLog, policy SlidingLogPolicy, cost int, now time.Time) time.Time {
+func nextAvailability(log slidingLog, policy Policy, cost int, now time.Time) time.Time {
 	required := cost - (policy.Limit - log.used)
 	released := 0
 

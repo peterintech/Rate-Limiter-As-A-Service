@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-type FixedWindowPolicy struct {
-	Limit  int
-	Window time.Duration
-}
-
-type FixedWindowPolicies map[Key]FixedWindowPolicy
+type FixedWindowPolicies map[Key]Policy
 
 type fixedWindow struct {
 	start time.Time
@@ -99,7 +94,7 @@ func validateFixedWindowPolicies(policies FixedWindowPolicies) error {
 }
 
 // windowFor returns the key's state for the current aligned time window.
-func (l *FixedWindowRateLimiter) windowFor(key Key, policy FixedWindowPolicy, now time.Time) fixedWindow {
+func (l *FixedWindowRateLimiter) windowFor(key Key, policy Policy, now time.Time) fixedWindow {
 	start := now.Truncate(policy.Window)
 	window := l.windows[key]
 	if !window.start.Equal(start) {

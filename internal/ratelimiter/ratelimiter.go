@@ -16,6 +16,11 @@ type Key struct {
 	Resource string
 }
 
+type Policy struct {
+	Limit  int
+	Window time.Duration
+}
+
 type Decision struct {
 	Allowed      bool
 	Limit        int
