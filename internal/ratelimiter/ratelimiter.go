@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	ErrInvalidCost = errors.New("cost must be greater than zero")
-	ErrNoPolicy    = errors.New("no rate-limit policy found")
+	ErrInvalidCost      = errors.New("cost must be greater than zero")
+	ErrCostExceedsLimit = errors.New("cost cannot exceed the policy limit")
+	ErrNoPolicy         = errors.New("no rate-limit policy found")
 )
 
 type Key struct {
