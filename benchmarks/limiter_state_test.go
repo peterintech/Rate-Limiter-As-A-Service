@@ -19,6 +19,10 @@ func BenchmarkLimiterState(b *testing.B) {
 			b.Run("sliding_log", func(b *testing.B) {
 				benchmarkSlidingLog(b, requests)
 			})
+
+			b.Run("token_bucket", func(b *testing.B) {
+				benchmarkTokenBucket(b, requests)
+			})
 		})
 	}
 }
@@ -61,6 +65,31 @@ func benchmarkSlidingLog(b *testing.B, requests int) {
 
 	for b.Loop() {
 		limiter, err := ratelimiter.NewSlidingLogRateLimiter(policies, func() time.Time { return now })
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		for range requests {
+			if _, err := limiter.Allow(ctx, key, 1); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func benchmarkTokenBucket(b *testing.B, requests int) {
+	key := ratelimiter.Key{ClientID: "client-a", Resource: "openai"}
+	policies := ratelimiter.TokenBucketPolicies{
+		key: {Limit: requests, Window: time.Minute},
+	}
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		limiter, err := ratelimiter.NewTokenBucketRateLimiter(policies, func() time.Time { return now })
 		if err != nil {
 			b.Fatal(err)
 		}
