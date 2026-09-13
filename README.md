@@ -2,19 +2,20 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V5
+## Current scope: V6
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
 - HTTP contract in [`docs/api.md`](docs/api.md)
 - Static per-client/resource policies
-- In-memory rolling-window request history
+- In-memory token buckets with continuous refill
 - An HTTP test that exercises the configured limiter through quota exhaustion
 - Atomic rate-limit decisions within one process
 - A concurrent HTTP test that verifies the configured limit is not exceeded
 - A deterministic boundary test that demonstrates fixed-window bursting
 - A sliding-log implementation that prevents the measured boundary burst
 - A benchmark that demonstrates sliding-log state growth under load
+- A token-bucket comparison that demonstrates bounded state
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
 Not included yet: Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
@@ -62,4 +63,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-The next phase will introduce an in-memory token bucket and compare its bounded state with the sliding log. Redis remains deferred until independent application instances demonstrate the need for shared state.
+The next phase will run independent application instances and demonstrate that each in-memory limiter grants its own copy of the quota. Redis remains deferred until that failure is reproduced.

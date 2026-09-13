@@ -64,13 +64,23 @@ A bounded benchmark compares fixed-window and sliding-log enforcement with 100, 
 - The experiment changes no production behavior.
 - Token bucket remains deferred until this state-growth limitation has been demonstrated.
 
+## V6: in-memory token bucket
+
+The application now uses an in-memory token bucket. A policy's limit is both its maximum token capacity and the number of tokens replenished continuously over its configured window.
+
+- Each client/resource retains only its token balance and last-refill timestamp.
+- Weighted costs consume the corresponding number of tokens.
+- Refill, capacity checking, and spending remain one atomic operation.
+- Crossing an aligned time boundary does not restore the full quota.
+- A cost larger than the bucket capacity returns a client error because it can never succeed.
+- The public response reports whole tokens that can be spent immediately and when full capacity is expected to return.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- Sliding-log state grows with the number of approved requests inside the active interval; the next phase will compare it with a bounded-state token bucket.
 - In-memory state disappears on restart.
-- Separate processes do not share state, so this is not yet a global limiter.
+- Separate processes do not share state; the next phase will demonstrate the resulting quota multiplication.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
 - Load, performance, and race-condition tests are deferred until their corresponding failure milestones. Ordinary correctness tests belong to V1.
 
@@ -81,6 +91,8 @@ The service is not production-ready:
 - Capacity returns as approved costs leave the rolling window.
 - Client/resource counters remain independent.
 - Weighted costs are atomic in sequential execution; rejected costs do not consume capacity.
+- Token capacity refills continuously according to elapsed time.
+- Costs greater than token capacity are rejected as invalid requests.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.

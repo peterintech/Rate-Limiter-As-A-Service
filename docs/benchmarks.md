@@ -14,11 +14,11 @@ go test -run '^$' -bench=BenchmarkLimiterState -benchmem -benchtime=20x ./benchm
 
 Representative Windows/AMD64 results:
 
-| Requests | Fixed window | Sliding log |
-|---:|---:|---:|
-| 100 | 688 B/op | 10,000 B/op |
-| 1,000 | 688 B/op | 70,928 B/op |
-| 10,000 | 688 B/op | 1,471,788 B/op |
+| Requests | Fixed window | Sliding log | Token bucket |
+|---:|---:|---:|---:|
+| 100 | 688 B/op | 10,000 B/op | 688 B/op |
+| 1,000 | 688 B/op | 70,928 B/op | 688 B/op |
+| 10,000 | 688 B/op | 1,471,788 B/op | 688 B/op |
 
 ### Reading the output
 
@@ -39,8 +39,8 @@ The row means:
 
 The command uses `-run '^$'` to skip ordinary tests, `-bench=BenchmarkLimiterState` to select this benchmark, and `-benchmem` to include memory measurements. A final `PASS` means the benchmark completed successfully; benchmark results are measurements and are not compared with a speed threshold.
 
-Each benchmark operation constructs a fresh limiter and sends the selected number of requests through it. The fixed window retains one usage counter, while the sliding log retains every request entry because the fixed clock prevents entries from expiring. Timing increases for both algorithms because both still process every request; the distinguishing result is that fixed-window allocation stays constant while sliding-log allocation grows with the batch size.
+Each benchmark operation constructs a fresh limiter and sends the selected number of requests through it. The fixed window retains one usage counter, the token bucket retains a balance and refill timestamp, and the sliding log retains every request entry because the fixed clock prevents entries from expiring. Timing increases for every algorithm because each still processes every request; the distinguishing result is that fixed-window and token-bucket allocation stay constant while sliding-log allocation grows with the batch size.
 
-The exact numbers depend on the machine and Go version, so they are evidence rather than acceptance thresholds. The important result is the growth pattern: fixed-window state remains constant while sliding-log allocation increases with active request history.
+The exact numbers depend on the machine and Go version, so they are evidence rather than acceptance thresholds. The important result is the growth pattern: fixed-window and token-bucket state remain constant while sliding-log allocation increases with active request history.
 
-The sliding log provides exact rolling-window enforcement, but its traffic-dependent state is expensive for high-volume client/resource policies. The next phase will compare it with an in-memory token bucket, which needs only an available-token balance and a last-refill timestamp per policy.
+The sliding log provides exact rolling-window enforcement, but its traffic-dependent state is expensive for high-volume client/resource policies. Token bucket removes that state growth by retaining only an available-token balance and a last-refill timestamp per policy. Its tradeoff is different semantics: it permits an initial burst up to capacity and then enforces a sustained refill rate rather than an exact rolling-window count.

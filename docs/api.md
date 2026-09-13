@@ -28,7 +28,7 @@ Allowed response (`200 OK`):
 
 Denied response (`429 Too Many Requests`) uses the same schema with `allowed: false` and a positive `retry_after_ms`. A denied request does not consume quota.
 
-`reset_at` is the next time recorded usage expires. For a denied weighted request, it is the earliest time enough capacity becomes available for that complete cost.
+`reset_at` is the estimated time when the active limiter regains full capacity. For a denied request, `retry_after_ms` reports when enough capacity exists for that complete cost.
 
 Errors use `{ "error": "message" }`:
 
