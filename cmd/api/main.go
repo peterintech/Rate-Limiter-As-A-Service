@@ -18,7 +18,7 @@ func main() {
 	cfg := config{
 		addr: fmt.Sprintf(":%s", env.GetEnv("PORT", "8080")),
 		env:  env.GetEnv("ENV", "development"),
-		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: 100, Window: time.Minute},
 			{ClientID: "client-b", Resource: "stripe"}: {Limit: 5000, Window: time.Minute},
 		},
@@ -27,7 +27,7 @@ func main() {
 	logger := zap.Must(zap.NewProduction()).Sugar()
 	defer logger.Sync()
 
-	limiter, err := ratelimiter.NewSlidingLogRateLimiter(cfg.slidingLogPolicies, time.Now)
+	limiter, err := ratelimiter.NewTokenBucketRateLimiter(cfg.tokenBucketPolicies, time.Now)
 	if err != nil {
 		logger.Fatalw("failed to create rate limiter", "error", err)
 	}

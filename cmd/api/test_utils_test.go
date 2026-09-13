@@ -14,7 +14,7 @@ import (
 func newTestApplication(t *testing.T, cfg config, now func() time.Time) *application {
 	t.Helper()
 
-	limiter, err := ratelimiter.NewSlidingLogRateLimiter(cfg.slidingLogPolicies, now)
+	limiter, err := ratelimiter.NewTokenBucketRateLimiter(cfg.tokenBucketPolicies, now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ func (app *application) checkRateLimitHandler(w http.ResponseWriter, r *http.Req
 		switch {
 		case errors.Is(err, ratelimiter.ErrNoPolicy):
 			app.notFoundError(w, r, err)
-		case errors.Is(err, ratelimiter.ErrInvalidCost):
+		case errors.Is(err, ratelimiter.ErrInvalidCost), errors.Is(err, ratelimiter.ErrCostExceedsLimit):
 			app.badRequestError(w, r, err)
 		default:
 			app.internalServerError(w, r, err)

@@ -17,7 +17,7 @@ func TestRateLimiter(t *testing.T) {
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
@@ -49,7 +49,7 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
@@ -93,13 +93,13 @@ func TestRateLimiterHandlesConcurrentRequests(t *testing.T) {
 	t.Logf("concurrent requests=%d; allowed=%d; rejected=%d", requests, allowed, rejected)
 }
 
-func TestSlidingLogPreventsBoundaryBurst(t *testing.T) {
+func TestTokenBucketPreventsBoundaryReset(t *testing.T) {
 	const limit = 3
 
 	cfg := config{
 		addr: ":0",
 		env:  "test",
-		slidingLogPolicies: ratelimiter.SlidingLogPolicies{
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
 		},
 	}
@@ -133,5 +133,50 @@ func TestSlidingLogPreventsBoundaryBurst(t *testing.T) {
 		checkResponse(t, "response code after boundary", http.StatusTooManyRequests, response.Code)
 	}
 
-	t.Logf("sliding log kept approvals at %d within %s for a limit of %d per minute", limit, burstInterval, limit)
+	t.Logf("token bucket kept approvals at %d within %s for a capacity of %d", limit, burstInterval, limit)
+}
+
+func TestTokenBucketRefillsOverTime(t *testing.T) {
+	const limit = 2
+
+	cfg := config{
+		addr: ":0",
+		env:  "test",
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
+			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
+		},
+	}
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	app := newTestApplication(t, cfg, func() time.Time { return now })
+	mux := app.mount()
+
+	for range limit {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/check",
+			bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
+		)
+		response := executeRequest(request, mux)
+		checkResponse(t, "response code while spending capacity", http.StatusOK, response.Code)
+	}
+
+	now = now.Add(30 * time.Second)
+
+	refilledRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/check",
+		bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
+	)
+	refilledResponse := executeRequest(refilledRequest, mux)
+	checkResponse(t, "response code after one token refills", http.StatusOK, refilledResponse.Code)
+
+	exhaustedRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/check",
+		bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
+	)
+	exhaustedResponse := executeRequest(exhaustedRequest, mux)
+	checkResponse(t, "response code after refilled token is spent", http.StatusTooManyRequests, exhaustedResponse.Code)
+
+	t.Log("one token refilled after half of the two-token window elapsed")
 }

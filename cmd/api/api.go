@@ -22,9 +22,9 @@ type application struct {
 }
 
 type config struct {
-	addr               string
-	env                string
-	slidingLogPolicies ratelimiter.SlidingLogPolicies
+	addr                string
+	env                 string
+	tokenBucketPolicies ratelimiter.TokenBucketPolicies
 }
 
 func (app *application) mount() *chi.Mux {
