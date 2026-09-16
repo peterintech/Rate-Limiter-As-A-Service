@@ -37,12 +37,9 @@ go run ./cmd/api
 
 For the measurement, set `ENV=test` in `.env` so per-request console logging does not become the bottleneck. This changes no routing, JSON handling, token-bucket behavior, or response handling.
 
-From WSL, resolve the Windows host address and run one 30-second attack for each rate. The target and JSON body are supplied directly by the command, so no Vegeta input files are required:
+The request target and body are stored in `benchmarks/load-test-target.txt` and `benchmarks/load-test-body.json`. Run one 30-second attack for each rate:
 
 ```bash
-WINDOWS_HOST=$(ip route show default | awk '{print $3}')
-
-printf 'POST http://%s:8080/v1/check\n' "$WINDOWS_HOST" |
 vegeta attack \
   -rate=1000/s \
   -duration=30s \
@@ -51,14 +48,15 @@ vegeta attack \
   -connections=1000 \
   -max-connections=1000 \
   -max-workers=2000 \
-  -body=<(printf '%s' '{"client_id":"client-b","resource":"stripe","cost":1}') \
+  -targets=benchmarks/load-test-target.txt \
+  -body=benchmarks/load-test-body.json \
   -header='Content-Type: application/json' |
 vegeta report
 ```
 
 Repeat the command with rates of `2000/s`, `4000/s`, `6000/s`, `8000/s`, and `10000/s`.
 
-This command uses Bash process substitution and is intended for the WSL environment where Vegeta is installed. Restart the server before each rate so every report starts from the same process and limiter state. Repeat boundary rates to distinguish a reproducible limit from a favorable individual run.
+Run Vegeta in an environment that can reach the API address in the target file. Restart the server before each rate so every report starts from the same process and limiter state. Repeat boundary rates to distinguish a reproducible limit from a favorable individual run.
 
 ## Reading the report
 

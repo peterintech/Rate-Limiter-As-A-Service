@@ -56,7 +56,7 @@ See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capac
 
 ```text
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
-benchmarks/               focused algorithm experiments
+benchmarks/               algorithm experiments and HTTP load-test inputs
 internal/env/             environment lookup helper
 internal/ratelimiter/     limiter contract and isolated algorithm implementations
 docs/                     requirements and API contract
