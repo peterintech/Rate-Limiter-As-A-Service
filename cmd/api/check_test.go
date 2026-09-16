@@ -180,3 +180,55 @@ func TestTokenBucketRefillsOverTime(t *testing.T) {
 
 	t.Log("one token refilled after half of the two-token window elapsed")
 }
+
+func TestIndependentInstancesMultiplyQuota(t *testing.T) {
+	const limit = 3
+
+	cfg := config{
+		addr: ":0",
+		env:  "test",
+		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
+			{ClientID: "client-a", Resource: "openai"}: {Limit: limit, Window: time.Minute},
+		},
+	}
+	now := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	instances := []struct {
+		name string
+		app  *application
+	}{
+		{name: "instance A", app: newTestApplication(t, cfg, func() time.Time { return now })},
+		{name: "instance B", app: newTestApplication(t, cfg, func() time.Time { return now })},
+	}
+
+	totalAllowed := 0
+	for _, instance := range instances {
+		mux := instance.app.mount()
+		instanceAllowed := 0
+
+		for requestNumber := 1; requestNumber <= limit+1; requestNumber++ {
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/check",
+				bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
+			)
+			response := executeRequest(request, mux)
+
+			expectedStatus := http.StatusOK
+			if requestNumber > limit {
+				expectedStatus = http.StatusTooManyRequests
+			}
+			checkResponse(t, instance.name+" response code", expectedStatus, response.Code)
+
+			if response.Code == http.StatusOK {
+				instanceAllowed++
+			}
+		}
+
+		checkResponse(t, instance.name+" allowed requests", limit, instanceAllowed)
+		totalAllowed += instanceAllowed
+		t.Logf("%s approved %d requests against a configured quota of %d", instance.name, instanceAllowed, limit)
+	}
+
+	checkResponse(t, "combined approvals", limit*len(instances), totalAllowed)
+	t.Logf("intended cluster quota=%d; instances=%d; combined approvals=%d", limit, len(instances), totalAllowed)
+}
