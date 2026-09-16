@@ -26,7 +26,8 @@ This repository deliberately starts before that destination. New components are 
 The project follows the same wiring pattern as Psocial:
 
 - `cmd/api` owns startup, configuration, dependency construction, routing, HTTP handlers, JSON/error helpers, and graceful shutdown.
-- `internal/ratelimiter` owns the limiter contract and its fixed-window implementation.
+- `internal/ratelimiter` owns the limiter contract and keeps each algorithm implementation in its own file.
+- `internal/store` owns external storage client construction, following the same dependency-wiring boundary used by Psocial.
 - Handlers depend on the narrow `ratelimiter.Limiter` interface through an `application` struct rather than constructing implementations themselves.
 - There is no service layer yet. The two handlers are small enough to orchestrate their use cases directly.
 
@@ -89,13 +90,27 @@ Two independently constructed application instances then receive the same policy
 - Cluster-wide enforcement requires shared state with one atomic decision across all instances.
 - Redis remains deferred until the next phase; this phase establishes the failure that justifies it.
 
+## V8: shared atomic token bucket
+
+The application now stores token balances and refill timestamps in Redis. Every API instance uses the same client/resource key, so adding instances no longer creates additional quota.
+
+- Each bucket stores only its token balance and last-refill timestamp.
+- A Lua script performs refill, capacity checking, spending, persistence, and expiry as one atomic Redis operation.
+- Redis server time provides one refill clock for every application instance.
+- Rejected requests update elapsed-time refill state but do not spend tokens.
+- A bucket key expires after twice its refill window. Once a full refill window has elapsed, recreating an expired bucket at full capacity is equivalent to retaining its fully refilled state.
+- Client and resource values are encoded before they become Redis key segments.
+- Two applications with separate Redis clients collectively approve no more than one configured quota.
+- Redis connectivity is required at startup. Outage behavior after startup is intentionally deferred to the next experiment.
+- The HTTP request and response contract is unchanged.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- In-memory state disappears on restart.
-- Separate processes do not share state; the multi-instance experiment demonstrates the resulting quota multiplication.
-- There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
+- Redis state is not persisted or replicated and disappears if the local Redis container is replaced.
+- There is no degraded-mode behavior when Redis is unavailable.
+- There is no Postgres, queue, durable logging, analytics dashboard, Nginx, or HA strategy yet.
 - Distributed load, Redis-outage, and failover experiments remain deferred until their corresponding components exist.
 
 ## Current acceptance criteria
@@ -109,6 +124,8 @@ The service is not production-ready:
 - Costs greater than token capacity are rejected as invalid requests.
 - Single-instance request handling and latency are measured under a fixed-rate HTTP workload.
 - Independent instances are shown to multiply the intended cluster-wide quota.
+- Redis-backed instances share one quota and make each decision atomically.
+- Idle Redis bucket keys expire instead of accumulating indefinitely.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.
