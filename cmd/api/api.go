@@ -24,7 +24,14 @@ type application struct {
 type config struct {
 	addr                string
 	env                 string
+	redisCfg            redisConfig
 	tokenBucketPolicies ratelimiter.TokenBucketPolicies
+}
+
+type redisConfig struct {
+	addr     string
+	password string
+	db       int
 }
 
 func (app *application) mount() *chi.Mux {
