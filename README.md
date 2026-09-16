@@ -2,7 +2,7 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V6
+## Current scope: V7
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -16,6 +16,8 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - A sliding-log implementation that prevents the measured boundary burst
 - A benchmark that demonstrates sliding-log state growth under load
 - A token-bucket comparison that demonstrates bounded state
+- A staged Vegeta test that measures one instance's HTTP traffic capacity
+- A multi-instance experiment that demonstrates quota multiplication with isolated in-memory state
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
 Not included yet: Redis, Postgres, queues, analytics, dashboard, Nginx, Docker, HA, or fail-safe behavior.
@@ -48,6 +50,7 @@ go test -run '^$' -bench=BenchmarkLimiterState -benchmem -benchtime=20x ./benchm
 
 The race test requires a race-enabled Go toolchain with a C compiler installed.
 See [`docs/benchmarks.md`](docs/benchmarks.md) for the state-growth experiment and representative results.
+See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capacity experiment, Vegeta commands, results, and interpretation.
 
 ## Repository layout
 
@@ -63,4 +66,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-The next phase will run independent application instances and demonstrate that each in-memory limiter grants its own copy of the quota. Redis remains deferred until that failure is reproduced.
+Single-instance measurements justify horizontal scaling, while the multi-instance experiment shows why isolated memory cannot preserve a global quota. The next phase will introduce shared Redis state so every application instance participates in one atomic token-bucket decision. Redis outage behavior and degraded-mode fallback remain deferred until shared enforcement is working and its failure can be demonstrated.

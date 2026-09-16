@@ -75,14 +75,28 @@ The application now uses an in-memory token bucket. A policy's limit is both its
 - A cost larger than the bucket capacity returns a client error because it can never succeed.
 - The public response reports whole tokens that can be spent immediately and when full capacity is expected to return.
 
+## V7: horizontal scaling limits
+
+An end-to-end Vegeta test establishes a verified local capacity floor of 2,000 HTTP requests per second for one API instance under the selected latency and response criteria. Fixed-rate stages measure how many requests the server receives and answers while the real token bucket remains active. Higher rates are not repeatable on the same-machine test environment, so the result is documented as a floor rather than an exact maximum.
+
+Two independently constructed application instances then receive the same policy and fixed clock. Each instance approves the policy's full capacity because each owns a separate in-memory token bucket.
+
+- Request rate is measured separately from users and connections and is not presented as a universal production limit.
+- Every HTTP response counts as handled traffic regardless of status; missing responses and transport errors are recorded separately.
+- A policy intended to allow three requests across the cluster permits three requests on each instance.
+- Two instances therefore approve six requests before both reject further traffic.
+- The experiment changes no production behavior or public contract.
+- Cluster-wide enforcement requires shared state with one atomic decision across all instances.
+- Redis remains deferred until the next phase; this phase establishes the failure that justifies it.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - In-memory state disappears on restart.
-- Separate processes do not share state; the next phase will demonstrate the resulting quota multiplication.
+- Separate processes do not share state; the multi-instance experiment demonstrates the resulting quota multiplication.
 - There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
-- Load, performance, and race-condition tests are deferred until their corresponding failure milestones. Ordinary correctness tests belong to V1.
+- Distributed load, Redis-outage, and failover experiments remain deferred until their corresponding components exist.
 
 ## Current acceptance criteria
 
@@ -93,6 +107,8 @@ The service is not production-ready:
 - Weighted costs are atomic in sequential execution; rejected costs do not consume capacity.
 - Token capacity refills continuously according to elapsed time.
 - Costs greater than token capacity are rejected as invalid requests.
+- Single-instance request handling and latency are measured under a fixed-rate HTTP workload.
+- Independent instances are shown to multiply the intended cluster-wide quota.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.
