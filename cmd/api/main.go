@@ -38,5 +38,7 @@ func main() {
 		rateLimiter: limiter,
 	}
 
-	logger.Fatal(app.run(app.mount()))
+	if err := app.run(app.mount()); err != nil {
+		logger.Fatalw("server stopped unexpectedly", "error", err)
+	}
 }
