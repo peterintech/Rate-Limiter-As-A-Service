@@ -1,0 +1,11 @@
+Requests      [total, rate, throughput]         11782, 392.73, 231.72
+Duration      [total, attack, wait]             30.002s, 30s, 1.959ms
+Latencies     [min, mean, 50, 90, 95, 99, max]  153.2µs, 44.71ms, 3.733ms, 153.832ms, 306.129ms, 503.31ms, 716.629ms
+Bytes In      [total, mean]                     1142325, 96.96
+Bytes Out     [total, mean]                     610555, 51.82
+Success       [ratio]                           59.01%
+Status Codes  [code:count]                      0:681  200:6952  429:4149  
+Error Set:
+Post "http://localhost:8083/v1/check": EOF
+Post "http://localhost:8083/v1/check": http: server closed idle connection
+429 Too Many Requests
