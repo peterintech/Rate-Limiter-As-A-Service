@@ -21,34 +21,30 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - A Redis-backed token bucket shared by every API instance
 - One atomic Lua decision using Redis server time
 - Expiring client/resource bucket keys with bounded state
+- Comparable one-instance and two-instance Nginx routes for traffic testing
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: Redis persistence or replication, degraded-mode behavior, Postgres, queues, analytics, dashboard, Nginx, or HA.
+Not included yet: Redis persistence or replication, degraded-mode behavior, Postgres, queues, analytics, dashboard, or HA.
 
 ## Run
 
-Requires Go 1.26 or newer.
-
-```bash
-docker compose up -d
-go run ./cmd/api
+```text
+docker compose up -d --build
 ```
 
-The service listens on `:8080` and connects to Redis at `localhost:6379` by default. Copy `.env.example` to `.env` to configure the API and Redis connection, or set the values in the process environment.
+The Compose stack runs two API instances. Its comparison gateways expose one instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure its Redis address through `.env` or the process environment.
 
 Redis Commander is available at `http://localhost:8082`. After making a rate-limit request, use it to inspect the bucket's token balance, last-refill timestamp, and remaining TTL.
 
-```bash
-curl -i -X POST http://localhost:8080/v1/check \
-  -H "Content-Type: application/json" \
-  -d '{"client_id":"client-a","resource":"openai","cost":1}'
+```text
+curl -i -X POST http://localhost:8083/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
 ```
 
 The demo policies are `client-a/openai` at 100 requests/minute and `client-b/stripe` at 5000 requests/minute.
 
 ## Test
 
-```bash
+```text
 go test ./...
 go test -race ./...
 go test -run '^$' -bench=BenchmarkLimiterState -benchmem -benchtime=20x ./benchmarks
@@ -57,7 +53,8 @@ go test -run '^$' -bench=BenchmarkLimiterState -benchmem -benchtime=20x ./benchm
 The race test requires a race-enabled Go toolchain with a C compiler installed.
 The shared-quota integration test runs when Redis is available at `REDIS_TEST_ADDR` or `localhost:6379`; otherwise it is skipped.
 See [`docs/benchmarks.md`](docs/benchmarks.md) for the state-growth experiment and representative results.
-See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capacity experiment, Vegeta commands, results, and interpretation.
+See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capacity experiment and the replicated-topology comparison.
+See [`docs/running-load-tests.md`](docs/running-load-tests.md) for step-by-step commands to run all three routes and save Vegeta reports. Each containerized API has a four-CPU limit.
 See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atomic decision flow.
 
 ## Repository layout
@@ -65,11 +62,13 @@ See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atom
 ```text
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
 benchmarks/               algorithm experiments and HTTP load-test inputs
+deploy/nginx/             comparable single-instance and distributed gateways
 internal/env/             environment lookup helper
 internal/ratelimiter/     limiter contract and isolated algorithm implementations
 internal/store/           external storage client construction
 docs/                     requirements and API contract
-docker-compose.yaml              local Redis dependency
+Dockerfile                production-style API image
+docker-compose.yaml       local Redis and replicated traffic-test topology
 ```
 
 The HTTP layer owns request parsing and orchestration. Rate limiting sits behind a narrow interface and is injected into the application during startup. As in Psocial, no pass-through service layer is added before workflow complexity justifies one.

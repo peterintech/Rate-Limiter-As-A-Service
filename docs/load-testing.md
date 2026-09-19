@@ -39,19 +39,9 @@ For the measurement, set `ENV=test` in `.env` so per-request console logging doe
 
 The request target and body are stored in `benchmarks/load-test-target.txt` and `benchmarks/load-test-body.json`. Run one 30-second attack for each rate:
 
-```bash
-vegeta attack \
-  -rate=1000/s \
-  -duration=30s \
-  -timeout=5s \
-  -dns-ttl=-1 \
-  -connections=1000 \
-  -max-connections=1000 \
-  -max-workers=2000 \
-  -targets=benchmarks/load-test-target.txt \
-  -body=benchmarks/load-test-body.json \
-  -header='Content-Type: application/json' |
-vegeta report
+```text
+vegeta attack -rate=1000/s -duration=30s -timeout=5s -dns-ttl=-1 -connections=1000 -max-connections=1000 -max-workers=2000 -targets=benchmarks/load-test-target.txt -body=benchmarks/load-test-body.json -header="Content-Type: application/json" -output=direct-1000-trial1.bin
+vegeta report direct-1000-trial1.bin
 ```
 
 Repeat the command with rates of `2000/s`, `4000/s`, `6000/s`, `8000/s`, and `10000/s`.
@@ -104,4 +94,65 @@ Request rate, concurrent connections, in-flight requests, and users are differen
 
 Production-equivalent testing requires the same build, resource limits, network topology, and dependencies as production, with Vegeta running from separate load-generator infrastructure. That separation also removes the load generator's competition with the server and is required before claiming a production capacity ceiling.
 
-Once a workload exceeds the measured single-instance envelope, running multiple API instances provides more serving capacity. Replication then exposes the next failure: every instance owns a separate in-memory token bucket and grants another full copy of the quota. The multi-instance test demonstrates why horizontal scaling requires shared, atomic rate-limit state.
+Once a workload exceeds the measured single-instance envelope, adding application instances and resources can provide more serving capacity. Replication then exposes the next failure: every instance owns a separate in-memory token bucket and grants another full copy of the quota. The multi-instance test demonstrates why horizontal scaling requires shared, atomic rate-limit state.
+
+## Replicated topology comparison
+
+Redis makes it safe for multiple API instances to enforce one shared quota. This experiment compares a direct host process, one container behind Nginx, and two containers behind Nginx to determine whether replication also improves completed HTTP traffic on the local test machine.
+
+Each API container has a four-CPU execution-time ceiling. The single route can therefore consume up to four CPUs, while the distributed route can consume up to eight CPUs across two processes. These are ceilings, not reserved physical cores. The direct process has no container CPU ceiling.
+
+The test does not assume that replication must be faster. The API containers, Redis, Nginx, and Vegeta still compete for the same physical host, so the result remains local evidence rather than a production scaling coefficient.
+
+The three routes are:
+
+```text
+localhost:8080 -> direct API process -> Redis
+localhost:8083 -> Nginx -> api-1 -> Redis
+localhost:8084 -> Nginx -> api-1 or api-2 -> Redis
+```
+
+Start the complete stack:
+
+```text
+docker compose up -d --build
+```
+
+Use the existing JSON body with the route-specific target files. The copyable, single-line commands and complete procedure are in [Running the V8 traffic comparison](running-load-tests.md).
+
+Apply the same acceptance criteria used by the original experiment: actual rate at least 99 percent of target, p95 below 5 milliseconds, p99 below 10 milliseconds, and no request without an HTTP response. Count every HTTP status as handled traffic. The useful comparison is the highest repeatable accepted rate for each topology, not Vegeta's success percentage.
+
+### Results
+
+The comparison was rerun on 2026-09-18 on the test machine documented above. The direct process and containers used the exact same API binary and Redis database. Each route was tested sequentially for 30 seconds at every offered rate. Route order rotated between stages. All raw text and JSON reports, including failed runs, are retained in [`benchmarks/results/v8-four-cpu-2026-09-18`](../benchmarks/results/v8-four-cpu-2026-09-18/README.md).
+
+| Target RPS | Route | Requests | Actual RPS | p95 | p99 | No HTTP response | HTTP 500 | Transport error kinds | Pass |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1,000 | direct | 30,000 | 1,000.04 | 5.28 ms | 18.51 ms | 0 | 0 | 0 | no |
+| 1,000 | one instance | 30,000 | 1,000.05 | 4.46 ms | 17.31 ms | 0 | 0 | 0 | no |
+| 1,000 | two instances | 30,000 | 1,000.02 | 4.65 ms | 11.64 ms | 0 | 0 | 0 | no |
+| 2,000 | direct | 20,416 | 680.52 | 102.14 ms | 319.16 ms | 0 | 0 | 0 | no |
+| 2,000 | one instance | 38,256 | 1,275.22 | 7.56 ms | 14.45 ms | 0 | 0 | 0 | no |
+| 2,000 | two instances | 51,276 | 1,709.24 | 5.66 ms | 41.24 ms | 0 | 0 | 0 | no |
+| 4,000 | direct | 9,371 | 312.17 | 87.37 ms | 117.30 ms | 0 | 0 | 0 | no |
+| 4,000 | one instance | 11,782 | 392.73 | 306.13 ms | 503.31 ms | 681 | 0 | 2 | no |
+| 4,000 | two instances | 17,388 | 579.53 | 321.94 ms | 1,299.60 ms | 0 | 0 | 0 | no |
+| 6,000 | direct | 20,321 | 677.34 | 214.06 ms | 288.06 ms | 0 | 0 | 0 | no |
+| 6,000 | one instance | 29,324 | 977.48 | 70.67 ms | 197.20 ms | 702 | 0 | 2 | no |
+| 6,000 | two instances | 19,840 | 661.29 | 237.09 ms | 453.36 ms | 172 | 0 | 2 | no |
+| 8,000 | direct | 17,085 | 569.49 | 283.93 ms | 463.70 ms | 0 | 0 | 0 | no |
+| 8,000 | one instance | 6,652 | 220.80 | 241.63 ms | 506.11 ms | 704 | 0 | 2 | no |
+| 8,000 | two instances | 5,338 | 177.92 | 333.15 ms | 422.01 ms | 320 | 0 | 2 | no |
+| 10,000 | direct | 40,076 | 1,335.87 | 22.19 ms | 68.68 ms | 0 | 0 | 0 | no |
+| 10,000 | one instance | 45,039 | 1,501.31 | 26.67 ms | 213.06 ms | 746 | 0 | 2 | no |
+| 10,000 | two instances | 6,071 | 202.37 | 734.77 ms | 840.94 ms | 105 | 0 | 2 | no |
+
+`Transport error kinds` counts distinct non-429 messages in Vegeta's error set; it is not a request count. `No HTTP response` is the request count represented by status code `0`. No run returned HTTP 500.
+
+### Conclusion
+
+No route passed the complete acceptance gate at 1,000 RPS: all three sustained the offered rate and returned a response for every request, but all exceeded the 10 ms p99 requirement. Therefore there was no passing boundary to repeat three times and this run establishes **no verified capacity floor under the selected thresholds**.
+
+At 2,000 RPS the two-instance route issued more requests than the one-instance route, and both proxied routes issued more than the direct route. That isolated ordering is not enough to claim a scaling factor. Results became strongly non-monotonic at higher offered rates, and some proxied runs recorded status-zero responses and EOF or closed-idle-connection errors. Increasing an offered rate cannot make the same server intrinsically more capable, so the varying achieved rates show that this colocated setup is measuring combined load-generator, host scheduler, Nginx, Redis, WSL2, and API behavior—not a clean API-only ceiling.
+
+The experiment does demonstrate an important reliability lesson: allocating two four-CPU containers raises the available application CPU ceiling, but it does not guarantee better end-to-end capacity when every component competes on one eight-logical-processor laptop. Redis remains justified because it preserves one atomic quota across replicas. A defensible production scaling claim requires equivalent deployment resources, independent application hosts, an independent load generator, and repeated trials at a candidate passing boundary.

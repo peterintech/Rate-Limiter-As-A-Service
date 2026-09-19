@@ -101,6 +101,7 @@ The application now stores token balances and refill timestamps in Redis. Every 
 - A bucket key expires after twice its refill window. Once a full refill window has elapsed, recreating an expired bucket at full capacity is equivalent to retaining its fully refilled state.
 - Client and resource values are encoded before they become Redis key segments.
 - Two applications with separate Redis clients collectively approve no more than one configured quota.
+- Traffic experiments compare an unrestricted direct API, one four-CPU API through Nginx, and two four-CPU APIs through Nginx. The measured results and limitations are recorded in `docs/load-testing.md`.
 - Redis connectivity is required at startup. Outage behavior after startup is intentionally deferred to the next experiment.
 - The HTTP request and response contract is unchanged.
 
@@ -110,8 +111,8 @@ The service is not production-ready:
 
 - Redis state is not persisted or replicated and disappears if the local Redis container is replaced.
 - There is no degraded-mode behavior when Redis is unavailable.
-- There is no Postgres, queue, durable logging, analytics dashboard, Nginx, or HA strategy yet.
-- Distributed load, Redis-outage, and failover experiments remain deferred until their corresponding components exist.
+- There is no Postgres, queue, durable logging, analytics dashboard, or HA strategy yet.
+- Redis-outage and failover experiments remain deferred until their corresponding components exist.
 
 ## Current acceptance criteria
 
