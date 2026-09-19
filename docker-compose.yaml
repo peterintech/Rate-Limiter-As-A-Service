@@ -9,6 +9,60 @@ services:
       timeout: 1s
       retries: 10
 
+  api-1:
+    build: .
+    cpus: 4.0
+    environment:
+      PORT: 8080
+      ENV: test
+      REDIS_ADDR: redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  api-2:
+    build: .
+    cpus: 4.0
+    environment:
+      PORT: 8080
+      ENV: test
+      REDIS_ADDR: redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  single-gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8083:8080"
+    volumes:
+      - ./deploy/nginx/single.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api-1:
+        condition: service_healthy
+
+  distributed-gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8084:8080"
+    volumes:
+      - ./deploy/nginx/distributed.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+
   redis-commander:
     image: rediscommander/redis-commander:latest
     environment:
