@@ -1,0 +1,109 @@
+# V7 experiment topology: one Nginx front door with two comparable routes.
+#
+#   8083  single-instance route    Vegeta -> Nginx -> api-1
+#   8084  distributed route        Vegeta -> Nginx -> api-1 or api-2
+#
+# Every API process runs the same in-memory token bucket from V6. There is no
+# shared state of any kind on this branch. `restart: "no"` keeps instance
+# lifecycle under explicit operator control so a stop is never masked by a
+# supervisor.
+#
+# api-1 and api-2 hold static addresses because Nginx resolves upstream names
+# once at startup. Without a static address a `docker compose restart` can hand
+# the API container a different address, leaving Nginx proxying to a stale one
+# that now belongs to the other instance. That silently turns the 8083 route
+# into a second API process and destroys the comparison.
+name: global-rate-limiter
+
+# WSL2 gives the Docker daemon a 1024 file-descriptor ceiling, which every
+# measured container inherits. Raised for all services so neither the proxy, the
+# API, nor the load generator is connection-limited by the host rather than by
+# the experiment.
+x-nofile: &nofile
+  nofile:
+    soft: 65535
+    hard: 65535
+
+x-api: &api
+  build:
+    context: .
+  image: global-rate-limiter/api:v7
+  environment:
+    PORT: "8080"
+    ENV: test
+  expose:
+    - "8080"
+  restart: "no"
+  ulimits:
+    <<: *nofile
+  deploy:
+    resources:
+      limits:
+        cpus: "4"
+        memory: 512M
+
+services:
+  api-1:
+    <<: *api
+    networks:
+      grl:
+        ipv4_address: 172.31.240.11
+
+  api-2:
+    <<: *api
+    networks:
+      grl:
+        ipv4_address: 172.31.240.12
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api-1
+      - api-2
+    ports:
+      - "8083:8083"
+      - "8084:8084"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - grl
+    restart: "no"
+    ulimits:
+      <<: *nofile
+    deploy:
+      resources:
+        limits:
+          # Measured to exceed 2 CPUs at 2,000 RPS, which would have capped
+          # both routes at the proxy instead of at the API.
+          cpus: "4"
+          memory: 512M
+
+  # Load generator. Kept behind a profile so `docker compose up` starts only the
+  # system under test. It is given four CPUs rather than two because at 1,000 RPS
+  # it already consumed more of its own budget than either API instance did; a
+  # load generator that is the bottleneck would invalidate every capacity result.
+  vegeta:
+    build:
+      context: ./deploy/loadgen
+    image: global-rate-limiter/vegeta:12.13.0
+    profiles:
+      - loadtest
+    volumes:
+      - ./benchmarks:/in:ro
+    networks:
+      - grl
+    ulimits:
+      <<: *nofile
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 1G
+
+networks:
+  grl:
+    name: grl
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.240.0/24

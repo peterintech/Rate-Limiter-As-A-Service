@@ -1,0 +1,9 @@
+# Overlay that swaps Nginx for its observability variant, which logs the
+# selected upstream address. Used only for the distribution check and the
+# availability run, never for a measured capacity trial.
+#
+#   docker compose -f compose.yaml -f deploy/compose.observability.yaml up -d
+services:
+  nginx:
+    volumes:
+      - ./deploy/nginx/nginx.observability.conf:/etc/nginx/nginx.conf:ro

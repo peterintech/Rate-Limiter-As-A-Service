@@ -1,0 +1,15 @@
+# Equal-CPU comparison override.
+#
+# The default topology already gives the distributed route two 4-CPU instances
+# (8 CPUs of application budget). This override raises the single-instance
+# route's api-1 budget to 8 CPUs so both routes are compared at the same total
+# application CPU allocation, which separates "more cores" from "more
+# instances".
+#
+#   docker compose -f compose.yaml -f deploy/compose.equalcpu.yaml up -d
+services:
+  api-1:
+    deploy:
+      resources:
+        limits:
+          cpus: "8"

@@ -1,0 +1,1 @@
+POST http://nginx:8084/v1/check

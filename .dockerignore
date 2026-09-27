@@ -1,0 +1,13 @@
+.git
+.gocache
+.tmp
+bin
+docs
+benchmarks
+deploy
+*.md
+.env
+.env.example
+.air.toml
+compose*.yaml
+Dockerfile
