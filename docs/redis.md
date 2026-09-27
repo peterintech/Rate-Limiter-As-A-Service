@@ -14,7 +14,7 @@ The application uses these environment values:
 | `REDIS_PASSWORD` | empty | Redis authentication password |
 | `REDIS_DB` | `0` | Redis logical database |
 
-Startup fails immediately if Redis cannot be reached. Runtime outage behavior is deliberately not hidden by a fallback yet; that failure is the evidence required for the next phase.
+Startup fails immediately if Redis cannot be reached. Runtime outage behavior is deliberately not hidden by a fallback yet. The measured failure and recovery behavior is recorded in [`redis-outage.md`](redis-outage.md).
 
 ## Bucket state
 

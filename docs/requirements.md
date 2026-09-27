@@ -105,6 +105,20 @@ The application now stores token balances and refill timestamps in Redis. Every 
 - Redis connectivity is required at startup. Outage behavior after startup is intentionally deferred to the next experiment.
 - The HTTP request and response contract is unchanged.
 
+## V9: Redis outage failure
+
+A deterministic application-level integration test and a real Compose outage experiment demonstrate what happens when Redis becomes unavailable after startup.
+
+- A normal distributed rate-limit decision returns HTTP 200 before the outage.
+- Distributed rate-limit checks return HTTP 500 while the shared Redis dependency is unavailable.
+- Failed decisions took between 2.360 and 4.435 seconds because the Redis client attempted to reconnect.
+- The bounded HTTP response does not expose internal Redis errors.
+- Both API processes remain alive and `/v1/health` continues returning HTTP 200.
+- Existing Redis clients reconnect after Redis becomes healthy; the API instances do not need to restart.
+- The experiment adds no fallback, circuit breaker, local emergency bucket, or readiness endpoint.
+- Failing open, failing closed, and independent full-capacity fallbacks remain explicit design choices for the next phase.
+- The public request and successful-decision contract is unchanged.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
@@ -112,7 +126,7 @@ The service is not production-ready:
 - Redis state is not persisted or replicated and disappears if the local Redis container is replaced.
 - There is no degraded-mode behavior when Redis is unavailable.
 - There is no Postgres, queue, durable logging, analytics dashboard, or HA strategy yet.
-- Redis-outage and failover experiments remain deferred until their corresponding components exist.
+- Degraded-mode implementation and Redis failover remain deferred until their corresponding failures and tradeoffs are addressed.
 
 ## Current acceptance criteria
 
@@ -127,6 +141,7 @@ The service is not production-ready:
 - Independent instances are shown to multiply the intended cluster-wide quota.
 - Redis-backed instances share one quota and make each decision atomically.
 - Idle Redis bucket keys expire instead of accumulating indefinitely.
+- Runtime Redis loss is demonstrated to return bounded HTTP 500 responses while liveness remains healthy.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.

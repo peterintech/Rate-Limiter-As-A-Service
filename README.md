@@ -2,7 +2,7 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V8
+## Current scope: V9
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -22,6 +22,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - One atomic Lua decision using Redis server time
 - Expiring client/resource bucket keys with bounded state
 - Comparable one-instance and two-instance Nginx routes for traffic testing
+- A runtime Redis-outage experiment that records decision failure and automatic reconnection
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
 Not included yet: Redis persistence or replication, degraded-mode behavior, Postgres, queues, analytics, dashboard, or HA.
@@ -56,6 +57,7 @@ See [`docs/benchmarks.md`](docs/benchmarks.md) for the state-growth experiment a
 See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capacity experiment and the replicated-topology comparison.
 See [`docs/running-load-tests.md`](docs/running-load-tests.md) for step-by-step commands to run all three routes and save Vegeta reports. Each containerized API has a four-CPU limit.
 See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atomic decision flow.
+See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outage and recovery behavior.
 
 ## Repository layout
 
@@ -75,4 +77,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Shared Redis state now preserves one quota across independent API instances. The next phase will demonstrate what happens when Redis becomes unavailable and use that evidence to design degraded-mode behavior.
+The Redis-outage experiment now shows that every decision returns `500` after several seconds while both API processes remain alive. The next phase will use that evidence to implement bounded degraded-mode behavior without recreating per-instance quota multiplication.
