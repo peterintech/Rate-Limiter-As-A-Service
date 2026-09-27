@@ -77,15 +77,21 @@ The application now uses an in-memory token bucket. A policy's limit is both its
 
 ## V7: horizontal scaling limits
 
-An end-to-end Vegeta test establishes a verified local capacity floor of 2,000 HTTP requests per second for one API instance under the selected latency and response criteria. Fixed-rate stages measure how many requests the server receives and answers while the real token bucket remains active. Higher rates are not repeatable on the same-machine test environment, so the result is documented as a floor rather than an exact maximum.
+Distribution is adopted for a specific reason, and this phase measures whether that reason holds. Three questions are separated because they have different answers and different evidence.
 
-Two independently constructed application instances then receive the same policy and fixed clock. Each instance approves the policy's full capacity because each owns a separate in-memory token bucket.
+**Capacity.** A containerized two-route experiment puts one Nginx in front of two independent API processes, each limited to four CPUs, and compares it against a single instance through the same proxy. Offered rates from 250 to 10,000 requests per second are measured with three 30-second trials per rate and a 60-second confirmation at the candidate boundary, while the real token bucket remains active. The complete local harness sustained 7,000 requests per second on the single route and 6,000 on the distributed route under the chosen criteria. These are not isolated API capacity floors. The load generator, proxy, APIs, and unrelated containers competed for the same eight logical CPUs, while the API containers remained below their CPU limits. The experiment therefore cannot prove whether adding instances raises application capacity.
+
+**Availability.** A steady 100 requests per second is held for 150 seconds while instances are stopped and restarted twice mid-run. The rate is chosen so the quota never exhausts, so every failure is an availability failure. The distributed route lost no client-visible request. A single-instance control lost 850 requests during the one outage that affected it. Distribution buys availability, which is the reason to adopt it.
+
+**Global correctness.** Each instance holds a private in-memory token bucket, so a policy intended to allow one quota across the cluster allows one quota per instance. At 600 requests per second against a 5,000-per-minute policy, the single route approved 8,332 requests where the distributed route approved 16,664 — a factor of exactly 2.00. Two deterministic application instances with a fixed clock show the same result: a policy intended to allow three requests cluster-wide allows three on each instance and six in total.
 
 - Request rate is measured separately from users and connections and is not presented as a universal production limit.
 - Every HTTP response counts as handled traffic regardless of status; missing responses and transport errors are recorded separately.
-- A policy intended to allow three requests across the cluster permits three requests on each instance.
-- Two instances therefore approve six requests before both reject further traffic.
-- The experiment changes no production behavior or public contract.
+- Latency figures are read from Vegeta's JSON report, which emits nanoseconds, and are divided by 1,000,000 when reported as milliseconds.
+- Trials are recorded only after a preflight confirms the single-instance route reaches exactly one process and the distributed route reaches both.
+- The API processes are restarted once per topology-and-rate group rather than before each trial, because a cold process penalizes a 30-second window. The documented results use that corrected method.
+- The experiment changes no production behavior or public contract. The measured deployments are measurement scaffolding, not a shipped orchestration.
+- A capacity claim requires the load generator and system under test to run on isolated resources without unrelated workloads.
 - Cluster-wide enforcement requires shared state with one atomic decision across all instances.
 - Redis remains deferred until the next phase; this phase establishes the failure that justifies it.
 
@@ -94,9 +100,11 @@ Two independently constructed application instances then receive the same policy
 The service is not production-ready:
 
 - In-memory state disappears on restart.
-- Separate processes do not share state; the multi-instance experiment demonstrates the resulting quota multiplication.
-- There is no Redis, Postgres, queue, durable logging, analytics dashboard, Nginx, containerization, or HA/fail-safe strategy yet.
-- Distributed load, Redis-outage, and failover experiments remain deferred until their corresponding components exist.
+- Separate processes do not share state; both the deterministic test and the end-to-end runs demonstrate the resulting quota multiplication.
+- The Nginx and Compose topology exists to measure the system, not to run it. It has no image publishing, no TLS, no health-gated rollout, and no restart policy.
+- There is no Redis, Postgres, queue, durable logging, or analytics dashboard.
+- There is no shared-state component, so no Redis-outage, degraded-mode, or fail-safe experiment is possible yet.
+- The distributed capacity result is bounded by a single shared host. A claim that scaling out adds capacity requires load generators and application instances on separate hosts.
 
 ## Current acceptance criteria
 
@@ -107,8 +115,10 @@ The service is not production-ready:
 - Weighted costs are atomic in sequential execution; rejected costs do not consume capacity.
 - Token capacity refills continuously according to elapsed time.
 - Costs greater than token capacity are rejected as invalid requests.
-- Single-instance request handling and latency are measured under a fixed-rate HTTP workload.
-- Independent instances are shown to multiply the intended cluster-wide quota.
+- Single-instance and distributed request handling and latency are measured under a fixed-rate HTTP workload.
+- A single instance and a two-instance pair are compared at equal total application CPU, and the result is reported whether or not distribution wins.
+- Stopping one instance produces no failed request on the distributed route, and the single-instance control is measured to show the contrast.
+- The cluster-wide quota multiplication factor is measured end to end, not only asserted in a unit test.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.

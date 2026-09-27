@@ -1,107 +1,86 @@
-# Single-instance traffic capacity
+# Why we tested distribution
 
-Horizontal scaling should answer a measured capacity problem. This experiment sends fixed request rates through the real `POST /v1/check` endpoint to establish a local traffic envelope for one API instance.
+The goal of this project is a highly available rate limiter that enforces one quota across every API instance. Before adding a distributed component, we needed evidence that a single API process had reached a real limitation.
 
-The test measures completed HTTP traffic, not rate-limit outcomes. A `200`, `429`, or any other HTTP response means the server received the request and returned a response. Requests with status code `0`, connection errors, and timeouts did not receive an HTTP response.
+We tested three different questions. They sound similar, but they are not the same thing.
 
-## Tool
-
-[Vegeta](https://github.com/tsenart/vegeta) is a Go-based command-line load generator designed to send traffic at a constant request rate. Install the pinned version with the Go toolchain on Windows, Linux, or macOS:
-
-```text
-go install github.com/tsenart/vegeta/v12@v12.13.0
-```
-
-Prebuilt binaries are also available from the Vegeta releases page. No Vegeta package is added to this application's `go.mod`.
-
-## Test environment
-
-| Component | Value |
+| Question | What it means |
 | --- | --- |
-| Date | 2026-09-16 |
-| Operating system | Microsoft Windows 11 Pro 10.0.26200 |
-| CPU | Intel Core i5-8365U at 1.60 GHz, 8 logical processors |
-| Memory | 15.8 GB |
-| Go | 1.26.4 windows/amd64 |
-| Vegeta | 12.13.0 |
+| Capacity | Can the system handle more HTTP traffic? |
+| Availability | Can requests still be served when one API process stops? |
+| Global correctness | Does every API instance enforce one shared quota? |
 
-The API and load generator run on the same machine. They therefore compete for CPU, memory, and network resources. These results are a reproducible local comparison rather than a production capacity guarantee.
+The answers led to one clear decision: use multiple API instances for availability, then introduce shared atomic state so those instances still enforce one global quota.
 
-## Running the experiment
+## The setup
 
-Start the API:
+The test topology uses one Nginx entry point and two routes:
 
-```text
-go run ./cmd/api
-```
+| Route | Request path | Purpose |
+| --- | --- | --- |
+| `8083` | Vegeta → Nginx → `api-1` | Single API instance control |
+| `8084` | Vegeta → Nginx → `api-1` or `api-2` | Two API instance comparison |
 
-For the measurement, set `ENV=test` in `.env` so per-request console logging does not become the bottleneck. This changes no routing, JSON handling, token-bucket behavior, or response handling.
+Each API process uses the same in-memory token bucket. There is intentionally no Redis or other shared state in this phase.
 
-The request target and body are stored in `benchmarks/load-test-target.txt` and `benchmarks/load-test-body.json`. Run one 30-second attack for each rate:
+Vegeta sends a fixed request rate to the real `POST /v1/check` endpoint. A `200`, `429`, or other HTTP status means the server returned an HTTP response. Status `0`, connection errors, and timeouts mean no HTTP response arrived.
+
+Vegeta stores latency in nanoseconds in its JSON output. Divide by `1,000,000` to display milliseconds.
+
+## What the tests showed
+
+### Capacity was inconclusive
+
+The single route sustained 7,000 requests per second under the selected local criteria. The distributed route sustained 6,000 requests per second.
+
+That does **not** prove that one API instance has more capacity than two. The load generator, Nginx, the API containers, Redis, and Redis Commander were all competing for the same eight logical CPU host. The API containers stayed below their configured CPU limits, so the test found a limit in the local harness before it found a limit in the API.
+
+The honest result is: this experiment cannot justify distribution for capacity. A real capacity decision needs an independent load generator, isolated resources, and no unrelated workloads.
+
+### Availability was proven
+
+We held traffic at 100 requests per second for 150 seconds, then stopped each API instance for 30 seconds. This rate stays below the configured quota refill rate, so a failure cannot be confused with a valid `429` rate-limit decision.
+
+| Route | Requests | Successful responses | Client-visible errors |
+| --- | ---: | ---: | ---: |
+| One instance | 15,000 | 14,150 | 850 (`502` or `504`) |
+| Two instances | 15,000 | 15,000 | 0 |
+
+When one API process stopped, Nginx retried the other process. Six requests were slower because the first upstream attempt timed out, but every client still received `200`.
+
+This is the reason we keep the distributed topology: one API process can fail without stopping rate-limit decisions.
+
+### Global correctness was broken
+
+We sent 600 requests per second against a policy with a 5,000-request-per-minute allowance. Both routes began with fresh token buckets.
+
+| Route | Duration | Approved requests | Rejected requests |
+| --- | ---: | ---: | ---: |
+| One instance | 40 seconds | 8,332 | 15,668 |
+| Two instances | 40 seconds | 16,664 | 7,336 |
+
+Two instances approved exactly twice as many requests because each process owned its own token bucket. The deterministic application test, `TestIndependentInstancesMultiplyQuota`, shows the same failure with a fixed clock.
+
+This is why the next phase introduces shared atomic state. Multiple API instances are useful only if they make one decision against one shared quota.
+
+## The decision
+
+We distribute for availability, not for an unproven capacity claim.
+
+The next phase adds Redis so every API instance reads and updates the same token bucket atomically. Redis outage behaviour and degraded mode stay deferred until shared enforcement works and its own failure can be demonstrated.
+
+## Repeating the experiment
+
+Start the local measurement topology:
 
 ```bash
-vegeta attack \
-  -rate=1000/s \
-  -duration=30s \
-  -timeout=5s \
-  -dns-ttl=-1 \
-  -connections=1000 \
-  -max-connections=1000 \
-  -max-workers=2000 \
-  -targets=benchmarks/load-test-target.txt \
-  -body=benchmarks/load-test-body.json \
-  -header='Content-Type: application/json' |
-vegeta report
+docker compose up -d
 ```
 
-Repeat the command with rates of `2000/s`, `4000/s`, `6000/s`, `8000/s`, and `10000/s`.
+Run a 30-second distributed-route check at 2,000 requests per second:
 
-Run Vegeta in an environment that can reach the API address in the target file. Restart the server before each rate so every report starts from the same process and limiter state. Repeat boundary rates to distinguish a reproducible limit from a favorable individual run.
+```bash
+docker compose --profile loadtest run --rm vegeta sh -c "vegeta attack -rate=2000/s -duration=30s -timeout=5s -max-workers=16 -connections=256 -targets=/in/load-test-target-distributed.txt -body=/in/load-test-body.json -header='Content-Type: application/json' | vegeta report"
+```
 
-## Reading the report
-
-For this experiment, use:
-
-- `Requests total` for the number of requests Vegeta issued.
-- `Requests rate` for the actual request rate Vegeta sustained.
-- Latency `95th` and `99th` percentiles for response time.
-- Status code `0` and the error set for requests that received no HTTP response.
-
-Do not use Vegeta's `Success` ratio or successful-response `Throughput`. Vegeta treats non-2xx responses as unsuccessful, while this experiment deliberately counts all HTTP responses—including valid `429` decisions—as handled traffic.
-
-The local traffic envelope is the highest offered rate where the actual request rate reaches at least 99 percent of the target, p95 stays below 5 milliseconds, p99 stays below 10 milliseconds, and every issued request receives an HTTP response without connection errors or timeouts.
-
-## Results
-
-The 1,000-RPS stage was run once. The 2,000-RPS stage and every higher boundary rate were run three times after the initial progression showed non-monotonic latency. Each trial used a fresh API process.
-
-| Target RPS | Trial | Requests | Actual RPS | p95 | p99 | No HTTP response |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1,000 | 1 | 30,000 | 1,000.04 | 0.58 ms | 0.73 ms | 0 |
-| 2,000 | 1 | 60,000 | 2,000.07 | 0.29 ms | 0.64 ms | 0 |
-| 2,000 | 2 | 59,999 | 2,000.03 | 0.43 ms | 0.64 ms | 0 |
-| 2,000 | 3 | 59,999 | 2,000.03 | 0.52 ms | 0.65 ms | 0 |
-| 4,000 | 1 | 120,000 | 4,000.10 | 0.59 ms | 4.43 ms | 1 |
-| 4,000 | 2 | 119,997 | 4,000.04 | 0.54 ms | 2.12 ms | 0 |
-| 4,000 | 3 | 120,000 | 4,000.06 | 0.78 ms | 9.67 ms | 0 |
-| 6,000 | 1 | 179,999 | 6,000.14 | 36.39 ms | 253.69 ms | 387 |
-| 6,000 | 2 | 179,999 | 6,000.02 | 0.63 ms | 31.41 ms | 0 |
-| 6,000 | 3 | 179,998 | 6,000.12 | 0.71 ms | 1.65 ms | 0 |
-| 8,000 | 1 | 239,997 | 7,999.98 | 1.32 ms | 3.20 ms | 0 |
-| 8,000 | 2 | 239,997 | 8,000.00 | 1.14 ms | 2.75 ms | 0 |
-| 8,000 | 3 | 240,000 | 8,000.02 | 81.24 ms | 204.10 ms | 362 |
-| 10,000 | 1 | 299,997 | 9,999.99 | 3.04 ms | 104.99 ms | 68 |
-| 10,000 | 2 | 299,995 | 10,000.00 | 5.31 ms | 110.85 ms | 183 |
-| 10,000 | 3 | 299,997 | 10,000.20 | 1.85 ms | 3.94 ms | 0 |
-
-All three 2,000-RPS trials satisfy the request-rate, latency, and response criteria. At 4,000 RPS, one trial contains a request with no HTTP response, so that rate does not satisfy the strict zero-loss requirement across repeated runs. Higher rates show larger and non-monotonic latency and response-loss spikes.
-
-The defensible result is therefore a **verified local capacity floor of 2,000 requests per second**, not an exact maximum. The server may process more in favorable runs, but this same-machine experiment cannot claim those rates as reliable under the selected criteria.
-
-## Interpretation
-
-Request rate, concurrent connections, in-flight requests, and users are different measurements. Vegeta controls requests per second and creates enough workers to sustain that rate. It does not claim that the request rate equals a number of users or a maximum connection count.
-
-Production-equivalent testing requires the same build, resource limits, network topology, and dependencies as production, with Vegeta running from separate load-generator infrastructure. That separation also removes the load generator's competition with the server and is required before claiming a production capacity ceiling.
-
-Once a workload exceeds the measured single-instance envelope, running multiple API instances provides more serving capacity. Replication then exposes the next failure: every instance owns a separate in-memory token bucket and grants another full copy of the quota. The multi-instance test demonstrates why horizontal scaling requires shared, atomic rate-limit state.
+Replace `load-test-target-distributed.txt` with `load-test-target-single.txt` to use the single-instance route. Treat the result as a local learning experiment, not a production capacity number.
