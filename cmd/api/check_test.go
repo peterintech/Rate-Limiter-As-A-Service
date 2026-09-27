@@ -230,5 +230,8 @@ func TestIndependentInstancesMultiplyQuota(t *testing.T) {
 	}
 
 	checkResponse(t, "combined approvals", limit*len(instances), totalAllowed)
-	t.Logf("intended cluster quota=%d; instances=%d; combined approvals=%d", limit, len(instances), totalAllowed)
+	t.Logf(
+		"configured per-instance quota=%d; instances=%d; combined approvals=%d; multiplication factor=%d; verdict: effective cluster quota is %dx the configured value",
+		limit, len(instances), totalAllowed, totalAllowed/limit, totalAllowed/limit,
+	)
 }
