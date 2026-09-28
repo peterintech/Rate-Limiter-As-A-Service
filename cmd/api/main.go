@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/peterintech/global-rate-limiter/internal/env"
 	"github.com/peterintech/global-rate-limiter/internal/ratelimiter"
-	"github.com/peterintech/global-rate-limiter/internal/store"
 	"go.uber.org/zap"
 )
 
@@ -20,27 +17,18 @@ func main() {
 	logger := zap.Must(zap.NewProduction()).Sugar()
 	defer logger.Sync()
 
-	cfg := config{
-		addr: fmt.Sprintf(":%s", env.GetEnv("PORT", "8080")),
-		env:  env.GetEnv("ENV", "development"),
-		redisCfg: redisConfig{
-			addr:     env.GetEnv("REDIS_ADDR", "localhost:6379"),
-			password: env.GetEnv("REDIS_PASSWORD", ""),
-			db:       env.GetEnvAsInt("REDIS_DB", 0),
-		},
-		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
-			{ClientID: "client-a", Resource: "openai"}: {Limit: 100, Window: time.Minute},
-			{ClientID: "client-b", Resource: "stripe"}: {Limit: 5000, Window: time.Minute},
-		},
+	cfg, err := loadConfig()
+	if err != nil {
+		logger.Fatalw("invalid application configuration", "error", err)
 	}
 
-	redisClient := store.NewRedisClient(cfg.redisCfg.addr, cfg.redisCfg.password, cfg.redisCfg.db)
+	redisClient := newRedisClient(cfg.redisCfg)
 	defer redisClient.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		logger.Fatalw("failed to connect to Redis", "addr", cfg.redisCfg.addr, "error", err)
+		logger.Fatalw("failed to connect to Redis", "error", err)
 	}
 
 	limiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(redisClient, cfg.tokenBucketPolicies, ratelimiter.RedisTokenBucketConfig{})
