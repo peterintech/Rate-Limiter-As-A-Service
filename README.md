@@ -2,7 +2,7 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V9
+## Current scope: V10
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
@@ -23,9 +23,11 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - Expiring client/resource bucket keys with bounded state
 - Comparable one-instance and two-instance Nginx routes for traffic testing
 - A runtime Redis-outage experiment that records decision failure and automatic reconnection
+- Redis primary/replica replication with three-Sentinel automatic failover
+- AOF-backed quota recovery after every Redis process is replaced
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: Redis persistence or replication, degraded-mode behavior, Postgres, queues, analytics, dashboard, or HA.
+Not included yet: bounded dependency timeouts, circuit breaking, readiness, multi-host deployment, Postgres, queues, analytics, or a dashboard.
 
 ## Run
 
@@ -33,9 +35,9 @@ Not included yet: Redis persistence or replication, degraded-mode behavior, Post
 docker compose up -d --build
 ```
 
-The Compose stack runs two API instances. Its comparison gateways expose one instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure its Redis address through `.env` or the process environment.
+The Compose stack runs two API instances against a Sentinel-managed Redis primary and replica. Its comparison gateways expose one instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure a standalone Redis address through `.env` or the process environment.
 
-Redis Commander is available at `http://localhost:8082`. After making a rate-limit request, use it to inspect the bucket's token balance, last-refill timestamp, and remaining TTL.
+Redis Commander is available at `http://localhost:8082` and lists both Redis data nodes. Their names describe their startup roles; Sentinel may reverse those roles after failover.
 
 ```text
 curl -i -X POST http://localhost:8083/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
@@ -58,6 +60,7 @@ See [`docs/load-testing.md`](docs/load-testing.md) for the single-instance capac
 See [`docs/running-load-tests.md`](docs/running-load-tests.md) for step-by-step commands to run all three routes and save Vegeta reports. Each containerized API has a four-CPU limit.
 See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atomic decision flow.
 See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outage and recovery behavior.
+See [`docs/redis-high-availability.md`](docs/redis-high-availability.md) for the Sentinel failover and AOF recovery experiments.
 
 ## Repository layout
 
@@ -65,16 +68,17 @@ See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outa
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
 benchmarks/               algorithm experiments and HTTP load-test inputs
 deploy/nginx/             comparable single-instance and distributed gateways
+deploy/redis/             Sentinel configuration template
 internal/env/             environment lookup helper
 internal/ratelimiter/     limiter contract and isolated algorithm implementations
 internal/store/           external storage client construction
 docs/                     requirements and API contract
 Dockerfile                production-style API image
-docker-compose.yaml       local Redis and replicated traffic-test topology
+docker-compose.yaml       Redis HA and replicated API topology
 ```
 
 The HTTP layer owns request parsing and orchestration. Rate limiting sits behind a narrow interface and is injected into the application during startup. As in Psocial, no pass-through service layer is added before workflow complexity justifies one.
 
 ## Next milestone
 
-The Redis-outage experiment now shows that every decision returns `500` after several seconds while both API processes remain alive. The next phase will use that evidence to implement bounded degraded-mode behavior without recreating per-instance quota multiplication.
+Redis now survives one data-node failure and recovers persisted bucket state after complete process replacement. The next phase will bound dependency latency, add circuit breaking, distinguish readiness from liveness, and keep the fail-closed global-quota guarantee.

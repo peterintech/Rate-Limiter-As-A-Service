@@ -34,15 +34,15 @@ Run these commands from the repository root. They use the distributed route, so 
 ```text
 docker compose up -d --build
 curl -i -X POST http://localhost:8084/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
-docker compose stop redis
+docker compose stop redis-primary redis-replica
 curl -i -X POST http://localhost:8084/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
 curl -i http://localhost:8084/v1/health
 docker compose ps
-docker compose up -d --wait --wait-timeout 60 redis
+docker compose up -d --wait --wait-timeout 60 redis-primary redis-replica
 curl -i -X POST http://localhost:8084/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
 ```
 
-The request after `docker compose stop redis` can take a few seconds because the Redis client attempts to reconnect before returning an error. Keep both API containers running throughout the experiment.
+Stopping both data nodes recreates the complete dependency outage in the current V10 topology. The failed request can take a few seconds because the Redis client attempts to reconnect before returning an error. Keep both API containers running throughout the experiment.
 
 ## Recorded result
 
@@ -64,4 +64,4 @@ The clients reconnected automatically after Redis became healthy; neither API pr
 
 The process is alive during a Redis outage, but the rate-limiting capability is unavailable. Returning `500` after several seconds for every decision violates the requirement to continue serving controlled traffic during temporary cache outages.
 
-The existing health endpoint is correctly useful as a liveness signal, but it is not a readiness signal for the decision path. A future readiness policy must be designed together with degraded behavior: removing every replica from service merely because their shared Redis dependency is down would still produce a total outage.
+The existing health endpoint is correctly useful as a liveness signal, but it is not a readiness signal for the decision path. V10 reduces single-node outages through automatic failover. Complete Redis unavailability still requires the fail-fast and readiness behavior planned for the next phase.

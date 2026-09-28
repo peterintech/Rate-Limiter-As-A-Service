@@ -119,14 +119,29 @@ A deterministic application-level integration test and a real Compose outage exp
 - Failing open, failing closed, and independent full-capacity fallbacks remain explicit design choices for the next phase.
 - The public request and successful-decision contract is unchanged.
 
+## V10: Redis high availability and state durability
+
+The single Redis process is replaced by one primary, one replica, and three Sentinels. Both APIs discover the writable node through the same Sentinel master name. Both data nodes persist state through AOF using `appendfsync everysec` and separate named volumes.
+
+- Three Sentinels use quorum two to agree that the primary is unavailable.
+- Stopping the primary automatically promotes the replica without restarting either API.
+- The measured promotion completed approximately 6.3 seconds after primary loss; the first successful HTTP decision arrived after 7.966 seconds.
+- The former primary rejoins as an online replica of the promoted node.
+- Removing and recreating every Redis and Sentinel container while retaining the named volumes preserves the bucket's token balance, last-refill timestamp, and positive TTL.
+- Replication is asynchronous, so failover is not claimed to be lossless.
+- AOF `everysec` can lose approximately the most recent second of writes during a severe crash.
+- Every component still runs on one computer; this demonstrates failover mechanics, not host or availability-zone resilience.
+- Dependency failures still use the existing HTTP 500 behavior. Timeouts, circuit breaking, 503 mapping, and readiness remain deferred.
+- The public request and successful-decision contract is unchanged.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
-- Redis state is not persisted or replicated and disappears if the local Redis container is replaced.
-- There is no degraded-mode behavior when Redis is unavailable.
-- There is no Postgres, queue, durable logging, analytics dashboard, or HA strategy yet.
-- Degraded-mode implementation and Redis failover remain deferred until their corresponding failures and tradeoffs are addressed.
+- The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
+- Complete Redis unavailability still prevents authoritative decisions and can take several seconds to surface.
+- There is no multi-host failure isolation, Postgres, queue, durable usage logging, or analytics dashboard yet.
+- Fail-fast dependency handling, readiness, durable usage events, and analytics remain deferred.
 
 ## Current acceptance criteria
 
@@ -142,6 +157,8 @@ The service is not production-ready:
 - Redis-backed instances share one quota and make each decision atomically.
 - Idle Redis bucket keys expire instead of accumulating indefinitely.
 - Runtime Redis loss is demonstrated to return bounded HTTP 500 responses while liveness remains healthy.
+- Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
+- Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.
 - `go test -race ./...` passes when run with a race-enabled Go toolchain.
 - `go vet ./...` and `go build ./...` pass.
