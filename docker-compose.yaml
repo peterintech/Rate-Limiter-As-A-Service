@@ -1,10 +1,83 @@
 services:
-  redis:
+  redis-primary:
     image: redis:7.4.11-alpine3.21
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "6381:6379"
+    volumes:
+      - redis-primary-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-replica:
+    image: redis:7.4.11-alpine3.21
+    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis-replica-data:/data
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-1:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-2:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-3:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
       interval: 2s
       timeout: 1s
       retries: 10
@@ -15,9 +88,14 @@ services:
     environment:
       PORT: 8080
       ENV: test
-      REDIS_ADDR: redis:6379
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
     depends_on:
-      redis:
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
@@ -31,9 +109,14 @@ services:
     environment:
       PORT: 8080
       ENV: test
-      REDIS_ADDR: redis:6379
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
     depends_on:
-      redis:
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
@@ -64,11 +147,17 @@ services:
         condition: service_healthy
 
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    image: rediscommander/redis-commander@sha256:19cd0c49f418779fa2822a0496c5e6516d0c792effc39ed20089e6268477e40a
     environment:
-      REDIS_HOSTS: local:redis:6379
+      REDIS_HOSTS: primary:redis-primary:6379,replica:redis-replica:6379
     ports:
       - "8082:8081"
     depends_on:
-      redis:
+      redis-primary:
         condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+
+volumes:
+  redis-primary-data:
+  redis-replica-data:
