@@ -30,7 +30,7 @@ services:
 
   redis-primary:
     image: redis:7.4.11-alpine3.21
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "6381:6379"
     volumes:
@@ -43,7 +43,7 @@ services:
 
   redis-replica:
     image: redis:7.4.11-alpine3.21
-    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "6382:6379"
     volumes:
@@ -128,6 +128,7 @@ services:
       CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
       CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
       RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
     depends_on:
       redis-sentinel-1:
         condition: service_healthy
@@ -158,6 +159,7 @@ services:
       CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
       CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
       RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
     depends_on:
       redis-sentinel-1:
         condition: service_healthy
@@ -176,6 +178,7 @@ services:
       context: .
       target: worker
     environment:
+      WORKER_PORT: 8081
       DATABASE_URL: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
       REDIS_MASTER_NAME: rate-limiter-primary
       REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
@@ -189,6 +192,11 @@ services:
       APPROVAL_WORKER_CLAIM_IDLE: 30s
       APPROVAL_WORKER_CLAIM_INTERVAL: 10s
       APPROVAL_WORKER_RETRY_BACKOFF: 1s
+      APPROVAL_WORKER_STATUS_INTERVAL: 5s
+      APPROVAL_WORKER_BACKLOG_WARNING_PERCENT: 80
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
+    ports:
+      - "8085:8081"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -198,6 +206,11 @@ services:
         condition: service_healthy
       redis-sentinel-3:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
 
   single-gateway:
     image: nginx:1.27-alpine
