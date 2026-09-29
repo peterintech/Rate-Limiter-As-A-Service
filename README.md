@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V11
+## Current scope: V12
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -34,9 +34,13 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - Per-instance circuit breakers that fail closed without local quota
 - HTTP 503 dependency responses with a retry hint
 - Separate liveness and dependency-aware readiness endpoints
+- One Redis Stream event for every approved request
+- Approval events appended inside the token-bucket Lua execution
+- Shared event history across both API instances and Redis failover
+- AOF recovery of unconsumed approval events
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, Postgres, queues, durable usage events, analytics, or a dashboard.
+Not included yet: multi-host deployment, PostgreSQL, an event consumer, permanent billing history, analytics, or a dashboard.
 
 ## Run
 
@@ -71,6 +75,7 @@ See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atom
 See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outage and recovery behavior.
 See [`docs/redis-high-availability.md`](docs/redis-high-availability.md) for the Sentinel failover and AOF recovery experiments.
 See [`docs/redis-resilience.md`](docs/redis-resilience.md) for bounded failure, circuit breaking, readiness, and recovery evidence.
+See [`docs/approval-events.md`](docs/approval-events.md) for the approval-event alternatives, guarantees, limitations, failover proof, and latency comparison.
 
 ## Repository layout
 
@@ -91,4 +96,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Redis failures now return quickly without creating local capacity, and readiness is separate from process liveness. The next phase will make approved decisions durable without putting database writes on the decision path.
+Approved decisions now enter a shared recoverable stream without a second network round trip. The next phase will demonstrate the stream's growth, introduce an idempotent background consumer, and persist events into PostgreSQL before they are eligible for removal from Redis.

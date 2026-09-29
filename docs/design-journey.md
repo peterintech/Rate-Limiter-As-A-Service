@@ -329,6 +329,35 @@ With both Redis data nodes stopped, each of the two APIs made three bounded atte
 
 The system protects quota correctness by refusing decisions during complete Redis loss. It does not provide uninterrupted approvals. The next major requirement is durable approved-request history without placing durable database writes on this synchronous decision path.
 
+## V12: capture every reported approval
+
+### Problem
+
+The token bucket stores only current enforcement state. It cannot reconstruct individual approvals for billing or analytics, and its key disappears after inactivity.
+
+### Options considered
+
+- Insert directly into PostgreSQL and make durable storage part of every decision.
+- Buffer events in a Go channel and accept process-loss risk.
+- Publish to a separate broker after Redis and accept a dual-write gap.
+- Append to a Redis Stream inside the existing Lua decision.
+
+### Decision
+
+We append one Redis Stream entry for every allowed decision inside the token-bucket Lua script. Rejected requests append nothing, and the stream remains untrimmed until a durable consumer exists.
+
+### Why
+
+The stream reuses the dependency already on the decision path and requires no second network round trip. A reported HTTP 200 is not returned until `XADD` completes. Direct PostgreSQL writes would couple enforcement to analytics storage, an in-process channel could lose billing events, and a separate broker would introduce a Redis-to-broker dual write before the project has a mechanism to reconcile it.
+
+### Evidence
+
+Two API instances wrote weighted approvals into one stream while a rejected request added no entry. The stream continued after Sentinel promotion and AOF restored all observed entries after Redis process replacement. Three controlled 100 RPS comparisons found no measurable low-load regression. Higher-rate tail latency was noisy on the shared laptop and was not presented as an isolated `XADD` cost.
+
+### Tradeoff carried forward
+
+The untrimmed stream grows with every approval and retains Redis's asynchronous-replication and AOF durability limits. V13 now has a concrete reason to add a background consumer and permanent PostgreSQL storage.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:

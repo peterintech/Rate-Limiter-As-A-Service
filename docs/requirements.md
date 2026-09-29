@@ -152,6 +152,23 @@ V9 showed that a complete Redis outage held decisions for several seconds. V10 r
 - During the outage, liveness returned HTTP 200, readiness returned HTTP 503, and decisions returned a bounded public HTTP 503 response.
 - After Redis restarted, readiness and normal HTTP 200 decisions recovered without restarting either API.
 
+## V12: atomic approved-request event stream
+
+The token bucket previously retained only its current balance and refill time. Individual approvals were overwritten by later aggregate state and disappeared completely when the bucket expired. V12 adds one Redis Stream event for every approval without adding a second network request or a durable database write to the decision path.
+
+- The existing Lua script validates the bucket and stream key types before mutation.
+- An allowed decision stores the bucket and appends one event before returning HTTP 200.
+- A weighted request creates one event containing its complete cost.
+- HTTP 429 decisions append no event.
+- Both API instances write to one configurable stream using Redis server time.
+- Events contain client, resource, cost, approval time, and remaining capacity.
+- The stream is intentionally untrimmed because no durable consumer exists yet.
+- A failover experiment preserved three earlier events and appended a fourth after Sentinel promoted the replica.
+- Replacing every Redis and Sentinel container while retaining the AOF volumes restored all four observed events.
+- A controlled 100 RPS comparison found no measurable low-load regression; higher-rate local tail latency was too variable to isolate the `XADD` cost.
+- Redis Lua isolation prevents command interleaving but does not provide rollback after every possible runtime failure.
+- Stream durability still inherits asynchronous replication and AOF `everysec` loss windows.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
@@ -159,7 +176,7 @@ The service is not production-ready:
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
 - There is no multi-host failure isolation, Postgres, queue, durable usage logging, or analytics dashboard yet.
-- Durable usage events, analytics, and multi-host failure isolation remain deferred.
+- Permanent PostgreSQL usage history, stream consumption, analytics, and multi-host failure isolation remain deferred.
 
 ## Current acceptance criteria
 
@@ -175,6 +192,7 @@ The service is not production-ready:
 - Redis-backed instances share one quota and make each decision atomically.
 - Idle Redis bucket keys expire instead of accumulating indefinitely.
 - Runtime Redis loss returns bounded HTTP 503 responses while liveness remains healthy and readiness reports unavailable.
+- Every successful approval creates one shared Redis Stream event; rejected decisions create none.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.

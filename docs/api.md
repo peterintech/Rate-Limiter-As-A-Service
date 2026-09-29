@@ -30,6 +30,8 @@ Denied response (`429 Too Many Requests`) uses the same schema with `allowed: fa
 
 `reset_at` is the estimated time when the active limiter regains full capacity. For a denied request, `retry_after_ms` reports when enough capacity exists for that complete cost.
 
+Before an allowed response is returned, the Redis-backed limiter appends one internal approved-request event containing the client, resource, weighted cost, Redis approval time, and remaining capacity. This does not change the public response schema. Denied requests append no event.
+
 Errors use `{ "error": "message" }`:
 
 - `400` for invalid JSON or missing/invalid fields.

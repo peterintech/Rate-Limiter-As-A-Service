@@ -21,6 +21,7 @@ The application uses these environment values:
 | `RATE_LIMIT_DECISION_TIMEOUT` | `300ms` | Maximum time for one complete rate-limit decision |
 | `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Consecutive dependency failures before the circuit opens |
 | `CIRCUIT_BREAKER_OPEN_TIMEOUT` | `5s` | Delay before one recovery request may probe Redis |
+| `RATE_LIMIT_EVENT_STREAM` | `rate_limit:approved_requests` | Stream receiving one event per approved request |
 
 `REDIS_MASTER_NAME` and `REDIS_SENTINEL_ADDRS` must be configured together. Without them, the client uses `REDIS_ADDR`. The Compose APIs use Sentinel mode; direct host development and the existing integration tests use standalone mode.
 
@@ -66,6 +67,12 @@ Redis server time prevents application clock differences from producing inconsis
 Every decision sets the key TTL to twice the policy window. An empty bucket needs one complete window to refill, so expiry occurs only after it would already be full. Recreating an expired bucket at full capacity therefore preserves the rate-limit meaning while allowing inactive client/resource keys to leave Redis.
 
 Repeated traffic refreshes the TTL because the bucket is still active. Both Redis data nodes use AOF with `appendfsync everysec`; named volumes retain those files when containers are replaced. The policy can lose approximately the latest second of writes during a severe crash. An expired bucket still disappears normally even when its earlier state was persisted.
+
+## Approved-request events
+
+The bucket is current enforcement state, not history. Every allowed decision also appends one entry to the configured Redis Stream inside the same Lua execution. Rejected requests do not append entries. The stream deliberately has no TTL or trimming policy until a later worker persists its entries outside Redis.
+
+See [`approval-events.md`](approval-events.md) for the alternatives considered, event fields, atomicity limits, failover and persistence experiments, and measured latency comparison.
 
 ## Local verification
 
