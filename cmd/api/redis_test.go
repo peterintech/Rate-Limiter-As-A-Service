@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -39,6 +40,48 @@ func TestRedisSharesQuotaAcrossInstances(t *testing.T) {
 
 	t.Logf("shared quota=%d; instances=%d; concurrent requests=%d; combined approvals=%d; rejected=%d", limit, len(muxes), requests, allowed, rejected)
 	t.Logf("shared bucket TTL=%s", ttl.Round(time.Second))
+}
+
+func TestRedisRecordsApprovedRequests(t *testing.T) {
+	const limit = 3
+
+	clients := []*redis.Client{
+		newRedisTestClient(t),
+		newRedisTestClient(t),
+	}
+	policies := newRedisTestPolicies(limit)
+	prefix := newRedisTestPrefix(t, clients[0], "approved_events")
+	muxes := []*chi.Mux{
+		newRedisTestMux(t, clients[0], policies, prefix),
+		newRedisTestMux(t, clients[1], policies, prefix),
+	}
+
+	checkResponse(t, "weighted approval", http.StatusOK, executeRateLimitCheckWithCost(muxes[0], 2).Code)
+	checkResponse(t, "approval through second instance", http.StatusOK, executeRateLimitCheckWithCost(muxes[1], 1).Code)
+	checkResponse(t, "rejected request", http.StatusTooManyRequests, executeRateLimitCheckWithCost(muxes[0], 1).Code)
+
+	events, err := clients[0].XRange(context.Background(), redisTestEventStream(prefix), "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected one event for each of two approvals; got %d", len(events))
+	}
+
+	checkStreamField(t, events[0], "client_id", "client-a")
+	checkStreamField(t, events[0], "resource", "openai")
+	checkStreamField(t, events[0], "cost", "2")
+	checkStreamField(t, events[0], "remaining", "1")
+	checkStreamField(t, events[1], "cost", "1")
+	checkStreamField(t, events[1], "remaining", "0")
+	for _, event := range events {
+		approvedAt, err := strconv.ParseInt(fmt.Sprint(event.Values["approved_at_ms"]), 10, 64)
+		if err != nil || approvedAt <= 0 {
+			t.Errorf("event %s has invalid approval timestamp %q", event.ID, event.Values["approved_at_ms"])
+		}
+	}
+
+	t.Logf("two API instances approved two weighted requests; Redis recorded two events; the rejected request recorded none")
 }
 
 func TestUnavailableRedisFailsClosed(t *testing.T) {
@@ -120,7 +163,7 @@ func newRedisTestPrefix(t *testing.T, client *redis.Client, name string) string 
 
 	prefix := fmt.Sprintf("rate_limit_%s_test:%d", name, time.Now().UnixNano())
 	t.Cleanup(func() {
-		keys, err := client.Keys(context.Background(), prefix+":*").Result()
+		keys, err := client.Keys(context.Background(), prefix+"*").Result()
 		if err == nil && len(keys) > 0 {
 			client.Del(context.Background(), keys...)
 		}
@@ -135,7 +178,10 @@ func newRedisTestMux(t *testing.T, client *redis.Client, policies ratelimiter.To
 	limiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(
 		client,
 		policies,
-		ratelimiter.RedisTokenBucketConfig{KeyPrefix: prefix},
+		ratelimiter.RedisTokenBucketConfig{
+			KeyPrefix:   prefix,
+			EventStream: redisTestEventStream(prefix),
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -161,12 +207,29 @@ func newRedisTestMux(t *testing.T, client *redis.Client, policies ratelimiter.To
 }
 
 func executeRateLimitCheck(mux *chi.Mux) *httptest.ResponseRecorder {
+	return executeRateLimitCheckWithCost(mux, 1)
+}
+
+func executeRateLimitCheckWithCost(mux *chi.Mux, cost int) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/check",
-		bytes.NewBufferString(`{"client_id":"client-a","resource":"openai","cost":1}`),
+		bytes.NewBufferString(fmt.Sprintf(`{"client_id":"client-a","resource":"openai","cost":%d}`, cost)),
 	)
 	return executeRequest(request, mux)
+}
+
+func redisTestEventStream(prefix string) string {
+	return prefix + "_approved_requests"
+}
+
+func checkStreamField(t *testing.T, event redis.XMessage, field, expected string) {
+	t.Helper()
+
+	actual := fmt.Sprint(event.Values[field])
+	if actual != expected {
+		t.Errorf("event %s: expected %s=%q; got %q", event.ID, field, expected, actual)
+	}
 }
 
 func sendConcurrentRateLimitChecks(t *testing.T, muxes []*chi.Mux, requests int) (int, int) {
