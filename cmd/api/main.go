@@ -30,7 +30,7 @@ func main() {
 		logger.Fatalw("failed to connect to Redis", "error", err)
 	}
 
-	redisLimiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(redisClient, cfg.tokenBucketPolicies, ratelimiter.RedisTokenBucketConfig{})
+	redisLimiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(redisClient, cfg.tokenBucketPolicies, cfg.redisLimiterCfg)
 	if err != nil {
 		logger.Fatalw("failed to create rate limiter", "error", err)
 	}

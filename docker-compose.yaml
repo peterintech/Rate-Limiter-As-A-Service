@@ -96,6 +96,7 @@ services:
       RATE_LIMIT_DECISION_TIMEOUT: 300ms
       CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
       CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
     depends_on:
       redis-sentinel-1:
         condition: service_healthy
@@ -123,6 +124,7 @@ services:
       RATE_LIMIT_DECISION_TIMEOUT: 300ms
       CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
       CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
     depends_on:
       redis-sentinel-1:
         condition: service_healthy

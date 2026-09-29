@@ -16,6 +16,7 @@ type config struct {
 	env                 string
 	redisCfg            redisConfig
 	circuitBreakerCfg   ratelimiter.CircuitBreakerConfig
+	redisLimiterCfg     ratelimiter.RedisTokenBucketConfig
 	tokenBucketPolicies ratelimiter.TokenBucketPolicies
 }
 
@@ -45,6 +46,9 @@ func loadConfig() (config, error) {
 		env:               env.GetEnv("ENV", "development"),
 		redisCfg:          redisCfg,
 		circuitBreakerCfg: circuitBreakerCfg,
+		redisLimiterCfg: ratelimiter.RedisTokenBucketConfig{
+			EventStream: env.GetEnv("RATE_LIMIT_EVENT_STREAM", "rate_limit:approved_requests"),
+		},
 		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: 100, Window: time.Minute},
 			{ClientID: "client-b", Resource: "stripe"}: {Limit: 5000, Window: time.Minute},
