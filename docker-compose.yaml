@@ -1,4 +1,33 @@
 services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: rate_limiter
+      POSTGRES_USER: rate_limiter
+      POSTGRES_PASSWORD: rate_limiter
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rate_limiter -d rate_limiter"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      GOOSE_MIGRATION_DIR: /migrations
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis-primary:
     image: redis:7.4.11-alpine3.21
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
@@ -83,7 +112,9 @@ services:
       retries: 10
 
   api-1:
-    build: .
+    build:
+      context: .
+      target: api
     cpus: 4.0
     environment:
       PORT: 8080
@@ -111,7 +142,9 @@ services:
       retries: 10
 
   api-2:
-    build: .
+    build:
+      context: .
+      target: api
     cpus: 4.0
     environment:
       PORT: 8080
@@ -137,6 +170,34 @@ services:
       interval: 2s
       timeout: 1s
       retries: 10
+
+  approval-worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 3s
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      APPROVAL_WORKER_GROUP: approval-history
+      APPROVAL_WORKER_BATCH_SIZE: 100
+      APPROVAL_WORKER_BLOCK: 1s
+      APPROVAL_WORKER_CLAIM_IDLE: 30s
+      APPROVAL_WORKER_CLAIM_INTERVAL: 10s
+      APPROVAL_WORKER_RETRY_BACKOFF: 1s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
 
   single-gateway:
     image: nginx:1.27-alpine
@@ -173,5 +234,6 @@ services:
         condition: service_healthy
 
 volumes:
+  postgres-data:
   redis-primary-data:
   redis-replica-data:
