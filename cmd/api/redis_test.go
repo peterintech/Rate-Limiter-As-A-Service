@@ -84,6 +84,76 @@ func TestRedisRecordsApprovedRequests(t *testing.T) {
 	t.Logf("two API instances approved two weighted requests; Redis recorded two events; the rejected request recorded none")
 }
 
+func TestRedisStopsApprovalsWhenEventBacklogIsFull(t *testing.T) {
+	client := newRedisTestClient(t)
+	prefix := newRedisTestPrefix(t, client, "backlog_full")
+	mux := newRedisTestMuxWithBacklog(t, client, newRedisTestPolicies(3), prefix, 2)
+
+	checkResponse(t, "first approval", http.StatusOK, executeRateLimitCheck(mux).Code)
+	checkResponse(t, "second approval", http.StatusOK, executeRateLimitCheck(mux).Code)
+	checkResponse(t, "quota rejection while backlog is full", http.StatusTooManyRequests, executeRateLimitCheckWithCost(mux, 2).Code)
+	tokensBeforeBlockedApproval := redisTokens(t, client, prefix)
+	checkResponse(t, "approval blocked by full backlog", http.StatusServiceUnavailable, executeRateLimitCheck(mux).Code)
+
+	checkResponse(t, "events retained at configured capacity", 2, redisStreamLength(t, client, redisTestEventStream(prefix)))
+	if tokensAfterBlockedApproval := redisTokens(t, client, prefix); tokensAfterBlockedApproval != tokensBeforeBlockedApproval {
+		t.Errorf("blocked approval changed tokens from %s to %s", tokensBeforeBlockedApproval, tokensAfterBlockedApproval)
+	}
+
+	events, err := client.XRangeN(context.Background(), redisTestEventStream(prefix), "-", "+", 1).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.XDel(context.Background(), redisTestEventStream(prefix), events[0].ID).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	checkResponse(t, "approval after backlog drains", http.StatusOK, executeRateLimitCheck(mux).Code)
+	t.Log("full backlog returned 503 without spending the final token; approval resumed after one event was removed")
+}
+
+func TestRedisBacklogLimitIsSharedAcrossInstances(t *testing.T) {
+	const maxBacklog = 5
+	const requests = 20
+
+	clients := []*redis.Client{newRedisTestClient(t), newRedisTestClient(t)}
+	prefix := newRedisTestPrefix(t, clients[0], "shared_backlog")
+	policies := newRedisTestPolicies(requests)
+	muxes := []*chi.Mux{
+		newRedisTestMuxWithBacklog(t, clients[0], policies, prefix, maxBacklog),
+		newRedisTestMuxWithBacklog(t, clients[1], policies, prefix, maxBacklog),
+	}
+
+	start := make(chan struct{})
+	statuses := make(chan int, requests)
+	for requestNumber := range requests {
+		mux := muxes[requestNumber%len(muxes)]
+		go func() {
+			<-start
+			statuses <- executeRateLimitCheck(mux).Code
+		}()
+	}
+	close(start)
+
+	approved := 0
+	blocked := 0
+	for range requests {
+		switch status := <-statuses; status {
+		case http.StatusOK:
+			approved++
+		case http.StatusServiceUnavailable:
+			blocked++
+		default:
+			t.Errorf("unexpected response code %d", status)
+		}
+	}
+
+	checkResponse(t, "combined approvals", maxBacklog, approved)
+	checkResponse(t, "combined backlog rejections", requests-maxBacklog, blocked)
+	checkResponse(t, "shared event backlog", maxBacklog, redisStreamLength(t, clients[0], redisTestEventStream(prefix)))
+	t.Logf("instances=%d; concurrent requests=%d; backlog capacity=%d; approvals=%d; blocked=%d", len(muxes), requests, maxBacklog, approved, blocked)
+}
+
 func TestUnavailableRedisFailsClosed(t *testing.T) {
 	adminClient := newRedisTestClient(t)
 	limiterClient := newRedisTestClient(t)
@@ -173,14 +243,19 @@ func newRedisTestPrefix(t *testing.T, client *redis.Client, name string) string 
 }
 
 func newRedisTestMux(t *testing.T, client *redis.Client, policies ratelimiter.TokenBucketPolicies, prefix string) *chi.Mux {
+	return newRedisTestMuxWithBacklog(t, client, policies, prefix, 100000)
+}
+
+func newRedisTestMuxWithBacklog(t *testing.T, client *redis.Client, policies ratelimiter.TokenBucketPolicies, prefix string, maxBacklog int) *chi.Mux {
 	t.Helper()
 
 	limiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(
 		client,
 		policies,
 		ratelimiter.RedisTokenBucketConfig{
-			KeyPrefix:   prefix,
-			EventStream: redisTestEventStream(prefix),
+			KeyPrefix:       prefix,
+			EventStream:     redisTestEventStream(prefix),
+			MaxEventBacklog: maxBacklog,
 		},
 	)
 	if err != nil {
@@ -204,6 +279,33 @@ func newRedisTestMux(t *testing.T, client *redis.Client, policies ratelimiter.To
 	}, protectedLimiter)
 	app.readinessCheck = newRedisReadinessCheck(client, protectedLimiter, breakerConfig.DecisionTimeout)
 	return app.mount()
+}
+
+func redisStreamLength(t *testing.T, client *redis.Client, stream string) int {
+	t.Helper()
+
+	length, err := client.XLen(context.Background(), stream).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int(length)
+}
+
+func redisTokens(t *testing.T, client *redis.Client, prefix string) string {
+	t.Helper()
+
+	keys, err := client.Keys(context.Background(), prefix+":*").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected one bucket key; got %d", len(keys))
+	}
+	tokens, err := client.HGet(context.Background(), keys[0], "tokens").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tokens
 }
 
 func executeRateLimitCheck(mux *chi.Mux) *httptest.ResponseRecorder {

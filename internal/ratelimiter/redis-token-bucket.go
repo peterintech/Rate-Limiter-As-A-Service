@@ -13,6 +13,7 @@ import (
 const (
 	defaultKeyPrefix   = "rate_limit"
 	defaultEventStream = "rate_limit:approved_requests"
+	defaultMaxBacklog  = 100000
 )
 
 var redisTokenBucketScript = redis.NewScript(`
@@ -22,6 +23,7 @@ local cost = tonumber(ARGV[3])
 local ttl_ms = tonumber(ARGV[4])
 local client_id = ARGV[5]
 local resource = ARGV[6]
+local max_backlog = tonumber(ARGV[7])
 
 local bucket_type = redis.call("TYPE", KEYS[1]).ok
 if bucket_type ~= "none" and bucket_type ~= "hash" then
@@ -51,10 +53,15 @@ end
 
 local allowed = 0
 local retry_after_ms = 0
+local backlog_full = 0
 
 if cost <= tokens then
-    allowed = 1
-    tokens = tokens - cost
+    if redis.call("XLEN", KEYS[2]) >= max_backlog then
+        backlog_full = 1
+    else
+        allowed = 1
+        tokens = tokens - cost
+    end
 else
     retry_after_ms = math.max(1, math.ceil((cost - tokens) * window_ms / capacity))
 end
@@ -62,28 +69,31 @@ end
 local remaining = math.floor(tokens)
 local reset_at_ms = now_ms + math.ceil((capacity - tokens) * window_ms / capacity)
 
-redis.call("HSET", KEYS[1], "tokens", tostring(tokens), "last_refill_ms", tostring(last_refill_ms))
-redis.call("PEXPIRE", KEYS[1], ttl_ms)
+if backlog_full == 0 then
+    redis.call("HSET", KEYS[1], "tokens", tostring(tokens), "last_refill_ms", tostring(last_refill_ms))
+    redis.call("PEXPIRE", KEYS[1], ttl_ms)
 
-if allowed == 1 then
-    redis.call(
-        "XADD",
-        KEYS[2],
-        "*",
-        "client_id", client_id,
-        "resource", resource,
-        "cost", tostring(cost),
-        "approved_at_ms", tostring(now_ms),
-        "remaining", tostring(remaining)
-    )
+    if allowed == 1 then
+        redis.call(
+            "XADD",
+            KEYS[2],
+            "*",
+            "client_id", client_id,
+            "resource", resource,
+            "cost", tostring(cost),
+            "approved_at_ms", tostring(now_ms),
+            "remaining", tostring(remaining)
+        )
+    end
 end
 
-return {allowed, remaining, reset_at_ms, retry_after_ms}
+return {allowed, remaining, reset_at_ms, retry_after_ms, backlog_full}
 `)
 
 type RedisTokenBucketConfig struct {
-	KeyPrefix   string
-	EventStream string
+	KeyPrefix       string
+	EventStream     string
+	MaxEventBacklog int
 }
 
 type RedisTokenBucketRateLimiter struct {
@@ -91,6 +101,7 @@ type RedisTokenBucketRateLimiter struct {
 	policies    TokenBucketPolicies
 	keyPrefix   string
 	eventStream string
+	maxBacklog  int
 }
 
 func NewRedisTokenBucketRateLimiter(client *redis.Client, policies TokenBucketPolicies, cfg RedisTokenBucketConfig) (*RedisTokenBucketRateLimiter, error) {
@@ -109,12 +120,20 @@ func NewRedisTokenBucketRateLimiter(client *redis.Client, policies TokenBucketPo
 	if eventStream == "" {
 		eventStream = defaultEventStream
 	}
+	maxBacklog := cfg.MaxEventBacklog
+	if maxBacklog == 0 {
+		maxBacklog = defaultMaxBacklog
+	}
+	if maxBacklog < 0 {
+		return nil, errors.New("maximum event backlog must be greater than zero")
+	}
 
 	return &RedisTokenBucketRateLimiter{
 		client:      client,
 		policies:    policies,
 		keyPrefix:   keyPrefix,
 		eventStream: eventStream,
+		maxBacklog:  maxBacklog,
 	}, nil
 }
 
@@ -145,12 +164,16 @@ func (l *RedisTokenBucketRateLimiter) Allow(ctx context.Context, key Key, cost i
 		windowMS*2,
 		key.ClientID,
 		key.Resource,
+		l.maxBacklog,
 	).Int64Slice()
 	if err != nil {
 		return Decision{}, fmt.Errorf("apply redis token bucket: %w", err)
 	}
-	if len(result) != 4 {
+	if len(result) != 5 {
 		return Decision{}, fmt.Errorf("apply redis token bucket: unexpected result length %d", len(result))
+	}
+	if result[4] == 1 {
+		return Decision{}, ErrEventBacklogFull
 	}
 
 	return Decision{

@@ -10,6 +10,7 @@ var (
 	ErrInvalidCost      = errors.New("cost must be greater than zero")
 	ErrCostExceedsLimit = errors.New("cost cannot exceed the policy limit")
 	ErrNoPolicy         = errors.New("no rate-limit policy found")
+	ErrEventBacklogFull = errors.New("approval event backlog is full")
 )
 
 type Key struct {

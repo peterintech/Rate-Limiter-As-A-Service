@@ -47,7 +47,8 @@ func loadConfig() (config, error) {
 		redisCfg:          redisCfg,
 		circuitBreakerCfg: circuitBreakerCfg,
 		redisLimiterCfg: ratelimiter.RedisTokenBucketConfig{
-			EventStream: env.GetEnv("RATE_LIMIT_EVENT_STREAM", "rate_limit:approved_requests"),
+			EventStream:     env.GetEnv("RATE_LIMIT_EVENT_STREAM", "rate_limit:approved_requests"),
+			MaxEventBacklog: env.GetEnvAsInt("RATE_LIMIT_EVENT_MAX_BACKLOG", 100000),
 		},
 		tokenBucketPolicies: ratelimiter.TokenBucketPolicies{
 			{ClientID: "client-a", Resource: "openai"}: {Limit: 100, Window: time.Minute},

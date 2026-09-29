@@ -151,5 +151,6 @@ func (l *CircuitBreakerLimiter) open() {
 func isRequestError(err error) bool {
 	return errors.Is(err, ErrInvalidCost) ||
 		errors.Is(err, ErrCostExceedsLimit) ||
-		errors.Is(err, ErrNoPolicy)
+		errors.Is(err, ErrNoPolicy) ||
+		errors.Is(err, ErrEventBacklogFull)
 }
