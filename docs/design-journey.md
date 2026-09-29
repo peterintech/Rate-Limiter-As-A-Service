@@ -388,6 +388,37 @@ With the worker stopped, three HTTP 200 approvals accumulated as three Redis ent
 
 Normal processing now bounds stream growth, but a prolonged PostgreSQL or worker outage still creates an unbounded backlog. V14 must add lag and memory observability and choose an explicit backpressure policy. It must not disguise the problem with unsafe blind trimming.
 
+## V14: protect Redis from an unbounded delivery backlog
+
+### Problem
+
+The V13 worker drains Redis during normal operation, but a prolonged worker or PostgreSQL outage lets approvals accumulate indefinitely. Waiting for Redis to exhaust memory would make quota enforcement and history fail together at an uncontrolled point.
+
+### Options considered
+
+- Continue accepting until Redis rejects writes.
+- Trim old stream entries or allow Redis eviction.
+- Write PostgreSQL synchronously from the API.
+- Bound the stream and refuse only new approvals while it is full.
+
+### Decision
+
+We chose one shared maximum stream length and atomic admission inside the existing Redis Lua script. An otherwise approvable request returns HTTP 503 when the limit is reached, without spending tokens or appending an event. Quota-invalid requests remain HTTP 429. Redis uses a fixed memory ceiling with `noeviction`, and the worker exposes liveness, dependency readiness, backlog status, and transition logs.
+
+### Why
+
+Trimming or eviction can silently destroy the only unpersisted copy of an approval. Synchronous PostgreSQL writes would undo the failure isolation gained in V13. Backpressure protects existing history and Redis itself while preserving the invariant that a reported approval has a corresponding event.
+
+The limit is based on entry count because it can be checked deterministically in the same Redis execution as `XADD`. It is not a substitute for memory monitoring: entry sizes vary, so production sizing still needs measured bytes per event and operational headroom.
+
+### Evidence
+
+Concurrent applications created exactly five events against a five-entry test limit. A full two-entry test backlog returned 503 without changing the remaining token value, then admitted the request after one entry was removed. In the Compose outage experiment, three approvals filled an isolated stream, later requests returned 503 with the token value unchanged, and starting the worker drained the stream and restored HTTP 200 decisions without an API restart.
+
+### Tradeoff carried forward
+
+The system deliberately sacrifices approval availability during a prolonged history-pipeline outage rather than lose history or destabilize Redis. Worker logs and status make the condition visible locally; external metrics, alert routing, and an operator response objective remain future operational work.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:

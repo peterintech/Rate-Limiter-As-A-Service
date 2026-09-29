@@ -36,7 +36,7 @@ Errors use `{ "error": "message" }`:
 
 - `400` for invalid JSON or missing/invalid fields.
 - `404` when the client/resource pair has no configured policy.
-- `503` when the shared rate-limit dependency is temporarily unavailable. This response includes `Retry-After` and never grants local fallback capacity.
+- `503` when the shared rate-limit dependency is temporarily unavailable or the approval-event backlog is full. This response includes `Retry-After`, never grants local fallback capacity, and does not spend quota.
 - `500` for an unexpected internal failure.
 
 ## `GET /v1/health`

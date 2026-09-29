@@ -185,6 +185,23 @@ The Redis Stream is now a temporary delivery buffer instead of the permanent his
 - The system provides at-least-once delivery with idempotent storage, not an exactly-once claim.
 - PostgreSQL runs on host port `5433` in Compose so it can coexist with another local database on the conventional `5432` port.
 
+## V14: bounded approval-event backlog
+
+The Redis Stream is now a finite delivery buffer with an explicit fail-closed admission rule.
+
+- `RATE_LIMIT_EVENT_MAX_BACKLOG` sets one shared maximum stream length and defaults to 100000.
+- The Lua script checks stream capacity only for requests that otherwise have enough tokens.
+- The capacity check, token spend, and event append remain one atomic Redis operation across every API instance.
+- A full backlog returns HTTP 503 without spending tokens or creating an event.
+- An exhausted quota still returns HTTP 429 because a rejected decision does not add to the backlog.
+- Backlog refusal is an application-capacity result, not a Redis dependency failure, and does not open the circuit breaker.
+- Redis data nodes use a 256 MiB limit with `noeviction`; authoritative buckets and unpersisted history are never silently evicted.
+- The worker exposes process health, Redis/PostgreSQL readiness, and backlog status on host port `8085`.
+- Status includes stream length, pending count, oldest-event age, configured limit, and capacity percentage.
+- Transition logs identify warning, full, resumed, below-warning, and fully-drained states without logging the same state every polling interval.
+- A Compose outage experiment filled a three-entry stream, observed HTTP 503 with an unchanged token value, then drained it and restored HTTP 200 without restarting the API.
+- Entry count bounds queue cardinality but does not replace byte-level Redis memory monitoring or production capacity sizing.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
@@ -192,7 +209,7 @@ The service is not production-ready:
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
 - There is no multi-host failure isolation, backlog alerting, analytics API, or dashboard yet.
-- A prolonged worker or PostgreSQL outage can still grow the Redis Stream until Redis memory is exhausted.
+- A prolonged worker or PostgreSQL outage stops new approvals at the configured backlog limit; external alert delivery is not implemented yet.
 
 ## Current acceptance criteria
 
@@ -211,6 +228,7 @@ The service is not production-ready:
 - Every successful approval creates one shared Redis Stream event; rejected decisions create none.
 - Every consumed approval is stored once in PostgreSQL before its exact Redis entry is removed.
 - Abandoned pending approvals can be claimed by another worker without duplicating history.
+- A full approval-event backlog refuses new approvals without spending quota, and admission resumes after the worker drains it.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.

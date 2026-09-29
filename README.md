@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V13
+## Current scope: V14
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -44,9 +44,13 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - At-least-once delivery with idempotent `stream_id` inserts
 - Recovery of abandoned pending entries with `XAUTOCLAIM`
 - Exact Redis cleanup only after a successful PostgreSQL commit
+- A shared admission limit that stops new approvals before the event backlog can grow without bound
+- Redis memory configured to reject writes instead of evicting authoritative quota or billing state
+- Worker liveness, dependency readiness, and backlog status endpoints
+- Backlog warning, full, recovery, and fully-drained transition logs
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, backlog alerting and backpressure, analytics APIs, or a dashboard.
+Not included yet: multi-host deployment, external alert delivery, analytics APIs, or a dashboard.
 
 ## Run
 
@@ -57,6 +61,7 @@ docker compose up -d --build
 The Compose stack runs two API instances against a Sentinel-managed Redis primary and replica. A separate worker moves approval events into PostgreSQL after Goose applies the schema. PostgreSQL is exposed at `localhost:5433`. The comparison gateways expose one API instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure a standalone Redis address through `.env` or the process environment.
 
 Redis Commander is available at `http://localhost:8082` and lists both Redis data nodes. Their names describe their startup roles; Sentinel may reverse those roles after failover.
+The worker exposes liveness, readiness, and backlog status at `http://localhost:8085/v1/health`, `/v1/readiness`, and `/v1/status`.
 
 ```text
 curl -i -X POST http://localhost:8083/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
@@ -83,6 +88,7 @@ See [`docs/redis-high-availability.md`](docs/redis-high-availability.md) for the
 See [`docs/redis-resilience.md`](docs/redis-resilience.md) for bounded failure, circuit breaking, readiness, and recovery evidence.
 See [`docs/approval-events.md`](docs/approval-events.md) for the approval-event alternatives, guarantees, limitations, failover proof, and latency comparison.
 See [`docs/durable-approval-history.md`](docs/durable-approval-history.md) for PostgreSQL persistence, Goose/sqlc organization, at-least-once delivery, safe cleanup, and outage recovery.
+See [`docs/backlog-protection.md`](docs/backlog-protection.md) for the V14 failure policy, atomic admission rule, worker signals, and recovery evidence.
 
 ## Repository layout
 
@@ -108,4 +114,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Approved decisions now move from Redis into durable PostgreSQL history without putting PostgreSQL on the HTTP decision path. The next phase will measure prolonged backlog growth, expose worker lag and Redis memory pressure, and define explicit backpressure before Redis memory is exhausted.
+The delivery buffer now has an explicit safety boundary. A later phase can add externally delivered alerts and reporting APIs without weakening the rule that an approval is returned only when both quota state and its history event are accepted atomically.

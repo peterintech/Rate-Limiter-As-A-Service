@@ -115,6 +115,10 @@ The default 30-second idle period avoids stealing work from a slow but active co
 | `APPROVAL_WORKER_CLAIM_IDLE`     | `30s`                   | Minimum idle time before abandoned work is claimed |
 | `APPROVAL_WORKER_CLAIM_INTERVAL` | `10s`                   | Frequency of abandoned-work checks                 |
 | `APPROVAL_WORKER_RETRY_BACKOFF`  | `1s`                    | Delay after a dependency failure                   |
+| `WORKER_PORT`                    | `8081`                  | Worker operations HTTP port                        |
+| `APPROVAL_WORKER_STATUS_INTERVAL` | `5s`                   | Frequency of backlog observation                   |
+| `APPROVAL_WORKER_BACKLOG_WARNING_PERCENT` | `80`          | Backlog percentage that triggers a warning         |
+| `RATE_LIMIT_EVENT_MAX_BACKLOG`   | `100000`                | Shared maximum number of buffered approval events  |
 
 The worker uses its own Redis connection. Its read timeout is longer than its blocking-read duration, so a normal `XREADGROUP` wait is not mistaken for a dependency timeout.
 
@@ -155,6 +159,6 @@ These results prove buffering and recovery on one computer. They do not establis
 
 ## Remaining limitation
 
-Redis is now drained during normal operation, but an indefinitely unavailable PostgreSQL database still causes the stream to grow. There is no alert on stream age, pending count, worker lag, or Redis memory pressure yet. Blind trimming remains forbidden because it would trade memory safety for silent billing-data loss.
+V14 now bounds this delivery backlog before Redis memory exhaustion. The API refuses new approvals at the shared stream limit without spending quota, while the worker exposes stream age, pending work, and capacity. Blind trimming remains forbidden because it would trade memory safety for silent billing-data loss. See [`backlog-protection.md`](backlog-protection.md).
 
-V14 will measure and expose that backlog, then define an explicit backpressure policy before Redis reaches its memory limit.
+The remaining operational gap is external alert delivery and production sizing. A local log and status endpoint make the condition observable, but they do not page an operator or determine the correct limit for a real traffic profile.
