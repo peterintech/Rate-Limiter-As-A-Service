@@ -4,6 +4,8 @@ The qualification brief is the destination: a highly available global rate-limit
 
 This repository deliberately starts before that destination. New components are added only after a test or experiment demonstrates the failure that requires them.
 
+[`design-journey.md`](design-journey.md) records the alternatives, decisions, evidence, and accepted tradeoffs that connect these requirements from one phase to the next.
+
 ## V0: contract
 
 - A caller asks whether a positive request cost may be spent for a `client_id` and `resource`.
@@ -134,14 +136,30 @@ The single Redis process is replaced by one primary, one replica, and three Sent
 - Dependency failures still use the existing HTTP 500 behavior. Timeouts, circuit breaking, 503 mapping, and readiness remain deferred.
 - The public request and successful-decision contract is unchanged.
 
+## V11: bounded Redis failure and readiness
+
+V9 showed that a complete Redis outage held decisions for several seconds. V10 reduced the chance of that outage through replication and automatic failover, but the application still needed protection when the entire Redis deployment was unavailable. V11 bounds that failure inside each API instance.
+
+- Every Redis connection, read, and write has an explicit timeout, and automatic command retries are disabled so they cannot extend the decision unpredictably.
+- The complete rate-limit decision has a 300 millisecond deadline.
+- Three consecutive dependency failures open a circuit breaker in each API process for five seconds.
+- An open circuit does not call Redis and does not create local quota. It returns HTTP 503 immediately.
+- HTTP 429 is a valid quota decision and does not count as a dependency failure.
+- After the open interval, one request probes the dependency. Success closes the circuit; failure opens it again.
+- `/v1/health` remains a process-liveness endpoint and stays healthy during a Redis outage.
+- `/v1/readiness` checks whether the API can currently reach Redis and attempt an authoritative decision.
+- A complete local Redis outage produced six approximately 304 millisecond failures across two API instances before their independent breakers opened. Later responses completed in approximately 3 milliseconds.
+- During the outage, liveness returned HTTP 200, readiness returned HTTP 503, and decisions returned a bounded public HTTP 503 response.
+- After Redis restarted, readiness and normal HTTP 200 decisions recovered without restarting either API.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
-- Complete Redis unavailability still prevents authoritative decisions and can take several seconds to surface.
+- Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
 - There is no multi-host failure isolation, Postgres, queue, durable usage logging, or analytics dashboard yet.
-- Fail-fast dependency handling, readiness, durable usage events, and analytics remain deferred.
+- Durable usage events, analytics, and multi-host failure isolation remain deferred.
 
 ## Current acceptance criteria
 
@@ -156,7 +174,7 @@ The service is not production-ready:
 - Independent instances are shown to multiply the intended cluster-wide quota.
 - Redis-backed instances share one quota and make each decision atomically.
 - Idle Redis bucket keys expire instead of accumulating indefinitely.
-- Runtime Redis loss is demonstrated to return bounded HTTP 500 responses while liveness remains healthy.
+- Runtime Redis loss returns bounded HTTP 503 responses while liveness remains healthy and readiness reports unavailable.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.

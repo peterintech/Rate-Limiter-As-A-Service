@@ -15,10 +15,16 @@ The application uses these environment values:
 | `REDIS_SENTINEL_ADDRS` | empty | Comma-separated Sentinel addresses |
 | `REDIS_PASSWORD` | empty | Redis authentication password |
 | `REDIS_DB` | `0` | Redis logical database |
+| `REDIS_DIAL_TIMEOUT` | `500ms` | Maximum time to establish a Redis connection |
+| `REDIS_READ_TIMEOUT` | `200ms` | Maximum time to wait for a Redis response |
+| `REDIS_WRITE_TIMEOUT` | `200ms` | Maximum time to send a Redis command |
+| `RATE_LIMIT_DECISION_TIMEOUT` | `300ms` | Maximum time for one complete rate-limit decision |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Consecutive dependency failures before the circuit opens |
+| `CIRCUIT_BREAKER_OPEN_TIMEOUT` | `5s` | Delay before one recovery request may probe Redis |
 
 `REDIS_MASTER_NAME` and `REDIS_SENTINEL_ADDRS` must be configured together. Without them, the client uses `REDIS_ADDR`. The Compose APIs use Sentinel mode; direct host development and the existing integration tests use standalone mode.
 
-Startup fails immediately if Redis cannot be reached. Runtime outage behavior is deliberately not hidden by a fallback. The original single-node failure is recorded in [`redis-outage.md`](redis-outage.md), while replication, failover, and persistence are recorded in [`redis-high-availability.md`](redis-high-availability.md).
+Startup fails immediately if Redis cannot be reached. Runtime outage behavior is not hidden by a fallback. The original single-node failure is recorded in [`redis-outage.md`](redis-outage.md), replication and persistence are recorded in [`redis-high-availability.md`](redis-high-availability.md), and bounded failure handling is recorded in [`redis-resilience.md`](redis-resilience.md).
 
 In the Compose topology, the primary accepts bucket updates and the replica copies them. Three Sentinel processes monitor those nodes and tell the application which node is currently writable. If the primary fails, at least two Sentinels must agree before the replica is promoted. AOF records Redis changes on the named Docker volumes so non-expired buckets can be reconstructed after the containers are replaced. The linked high-availability document explains each term and its tradeoffs in more detail.
 

@@ -2,9 +2,14 @@
 
 An intentionally evolutionary Go implementation of the qualification brief. The final destination is a highly available, cluster-accurate global rate limiter. Each new component is justified by a demonstrated failure in the preceding version.
 
-## Current scope: V10
+## How to read this project
+
+Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
+
+## Current scope: V11
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
+- Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
 - Final qualification target in [`docs/goal.md`](docs/goal.md)
 - HTTP contract in [`docs/api.md`](docs/api.md)
 - Static per-client/resource policies
@@ -25,9 +30,13 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 - A runtime Redis-outage experiment that records decision failure and automatic reconnection
 - Redis primary/replica replication with three-Sentinel automatic failover
 - AOF-backed quota recovery after every Redis process is replaced
+- Bounded Redis operation and complete-decision timeouts
+- Per-instance circuit breakers that fail closed without local quota
+- HTTP 503 dependency responses with a retry hint
+- Separate liveness and dependency-aware readiness endpoints
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: bounded dependency timeouts, circuit breaking, readiness, multi-host deployment, Postgres, queues, analytics, or a dashboard.
+Not included yet: multi-host deployment, Postgres, queues, durable usage events, analytics, or a dashboard.
 
 ## Run
 
@@ -61,6 +70,7 @@ See [`docs/running-load-tests.md`](docs/running-load-tests.md) for step-by-step 
 See [`docs/redis.md`](docs/redis.md) for the shared token-bucket design and atomic decision flow.
 See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outage and recovery behavior.
 See [`docs/redis-high-availability.md`](docs/redis-high-availability.md) for the Sentinel failover and AOF recovery experiments.
+See [`docs/redis-resilience.md`](docs/redis-resilience.md) for bounded failure, circuit breaking, readiness, and recovery evidence.
 
 ## Repository layout
 
@@ -81,4 +91,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Redis now survives one data-node failure and recovers persisted bucket state after complete process replacement. The next phase will bound dependency latency, add circuit breaking, distinguish readiness from liveness, and keep the fail-closed global-quota guarantee.
+Redis failures now return quickly without creating local capacity, and readiness is separate from process liveness. The next phase will make approved decisions durable without putting database writes on the decision path.

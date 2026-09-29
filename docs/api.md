@@ -34,7 +34,8 @@ Errors use `{ "error": "message" }`:
 
 - `400` for invalid JSON or missing/invalid fields.
 - `404` when the client/resource pair has no configured policy.
-- `500` when the limiter cannot make a decision.
+- `503` when the shared rate-limit dependency is temporarily unavailable. This response includes `Retry-After` and never grants local fallback capacity.
+- `500` for an unexpected internal failure.
 
 ## `GET /v1/health`
 
@@ -49,3 +50,17 @@ Returns `200 OK` with the service status, environment, and version:
 ```
 
 This is only a process liveness signal.
+
+## `GET /v1/readiness`
+
+Returns `200 OK` when the API can reach Redis and the circuit breaker can attempt a rate-limit decision:
+
+```json
+{
+  "status": "ready",
+  "env": "development",
+  "version": "0.1.0"
+}
+```
+
+Returns `503 Service Unavailable` with `status: "not ready"` when the API cannot currently make authoritative decisions. Readiness does not spend quota.
