@@ -41,7 +41,7 @@ func TestRedisSharesQuotaAcrossInstances(t *testing.T) {
 	t.Logf("shared bucket TTL=%s", ttl.Round(time.Second))
 }
 
-func TestUnavailableRedisStopsRateLimitChecks(t *testing.T) {
+func TestUnavailableRedisFailsClosed(t *testing.T) {
 	adminClient := newRedisTestClient(t)
 	limiterClient := newRedisTestClient(t)
 	policies := newRedisTestPolicies(10)
@@ -58,23 +58,30 @@ func TestUnavailableRedisStopsRateLimitChecks(t *testing.T) {
 	started := time.Now()
 	response = executeRateLimitCheck(mux)
 	failureLatency := time.Since(started)
-	checkResponse(t, "response while Redis is unavailable", http.StatusInternalServerError, response.Code)
+	checkResponse(t, "response while Redis is unavailable", http.StatusServiceUnavailable, response.Code)
 
-	const expectedBody = "{\"error\":\"rate-limit check failed\"}\n"
+	const expectedBody = "{\"error\":\"rate-limit service temporarily unavailable\"}\n"
 	if body := response.Body.String(); body != expectedBody {
 		t.Errorf("expected bounded outage response %q; got %q", expectedBody, body)
 	}
 
 	healthRequest := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
 	healthResponse := executeRequest(healthRequest, mux)
+
 	checkResponse(t, "health response while Redis is unavailable", http.StatusOK, healthResponse.Code)
 
+	readinessRequest := httptest.NewRequest(http.MethodGet, "/v1/readiness", nil)
+	readinessResponse := executeRequest(readinessRequest, mux)
+
+	checkResponse(t, "readiness response while Redis is unavailable", http.StatusServiceUnavailable, readinessResponse.Code)
+
 	t.Logf(
-		"before dependency failure=%d; while dependency is unavailable=%d; failure latency=%s; process health=%d",
+		"before dependency failure=%d; while dependency is unavailable=%d; failure latency=%s; process health=%d; readiness=%d",
 		http.StatusOK,
 		response.Code,
 		failureLatency.Round(time.Microsecond),
 		healthResponse.Code,
+		readinessResponse.Code,
 	)
 }
 
@@ -86,7 +93,11 @@ func newRedisTestClient(t *testing.T) *redis.Client {
 		redisAddr = "localhost:6379"
 	}
 
-	client := store.NewRedisClient(redisAddr, "", 0)
+	client := store.NewRedisClient(redisAddr, store.RedisOptions{
+		DialTimeout:  time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: time.Second,
+	})
 	t.Cleanup(func() { client.Close() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -130,7 +141,22 @@ func newRedisTestMux(t *testing.T, client *redis.Client, policies ratelimiter.To
 		t.Fatal(err)
 	}
 
-	app := newTestApplicationWithLimiter(config{addr: ":0", env: "test"}, limiter)
+	breakerConfig := ratelimiter.CircuitBreakerConfig{
+		FailureThreshold: 3,
+		OpenTimeout:      time.Second,
+		DecisionTimeout:  100 * time.Millisecond,
+	}
+	protectedLimiter, err := ratelimiter.NewCircuitBreakerLimiter(limiter, breakerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app := newTestApplicationWithLimiter(config{
+		addr:              ":0",
+		env:               "test",
+		circuitBreakerCfg: breakerConfig,
+	}, protectedLimiter)
+	app.readinessCheck = newRedisReadinessCheck(client, protectedLimiter, breakerConfig.DecisionTimeout)
 	return app.mount()
 }
 
