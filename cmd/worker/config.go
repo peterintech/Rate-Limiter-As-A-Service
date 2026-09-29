@@ -13,10 +13,14 @@ import (
 )
 
 type config struct {
+	addr         string
 	databaseURL  string
 	redis        redisConfig
 	events       events.Config
+	maxBacklog   int64
 	claimEvery   time.Duration
+	statusEvery  time.Duration
+	warningLevel int
 	retryBackoff time.Duration
 }
 
@@ -57,6 +61,18 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	statusEvery, err := positiveDuration("APPROVAL_WORKER_STATUS_INTERVAL", "5s")
+	if err != nil {
+		return config{}, err
+	}
+	maxBacklog, err := positiveInt("RATE_LIMIT_EVENT_MAX_BACKLOG", "100000")
+	if err != nil {
+		return config{}, err
+	}
+	warningLevel, err := positiveInt("APPROVAL_WORKER_BACKLOG_WARNING_PERCENT", "80")
+	if err != nil || warningLevel > 100 {
+		return config{}, errors.New("APPROVAL_WORKER_BACKLOG_WARNING_PERCENT must be between 1 and 100")
+	}
 
 	consumer := strings.TrimSpace(env.GetEnv("APPROVAL_WORKER_CONSUMER", ""))
 	if consumer == "" {
@@ -73,6 +89,7 @@ func loadConfig() (config, error) {
 	}
 
 	return config{
+		addr:        fmt.Sprintf(":%s", env.GetEnv("WORKER_PORT", "8081")),
 		databaseURL: databaseURL,
 		redis:       redisCfg,
 		events: events.Config{
@@ -84,6 +101,9 @@ func loadConfig() (config, error) {
 			ClaimIdle: claimIdle,
 		},
 		claimEvery:   claimEvery,
+		statusEvery:  statusEvery,
+		maxBacklog:   int64(maxBacklog),
+		warningLevel: warningLevel,
 		retryBackoff: retryBackoff,
 	}, nil
 }

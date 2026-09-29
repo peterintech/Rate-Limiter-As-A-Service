@@ -14,11 +14,7 @@ type application struct {
 	processor *events.Processor
 }
 
-func (app *application) run(ctx context.Context) error {
-	if err := app.processor.EnsureGroup(ctx); err != nil {
-		return err
-	}
-
+func (app *application) process(ctx context.Context) error {
 	app.logger.Infow(
 		"approval worker started",
 		"stream", app.config.events.Stream,

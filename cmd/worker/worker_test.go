@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -56,6 +59,44 @@ func TestWorkerRecoversPendingEventWithoutDuplicatingHistory(t *testing.T) {
 	checkStoredOnce(t, postgresPool, eventID)
 	checkStreamDrained(t, redisClient, stream)
 	t.Logf("replacement worker recovered %s; its existing PostgreSQL row prevented a duplicate", eventID)
+}
+
+func TestWorkerStatusReportsItsBacklog(t *testing.T) {
+	redisClient, postgresPool, stream := newWorkerTestDependencies(t)
+	processor := newTestProcessor(t, redisClient, postgresPool, stream, "status-worker", time.Minute)
+
+	if err := processor.EnsureGroup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	addApprovalEvent(t, redisClient, stream)
+	deliverToStoppedWorker(t, redisClient, stream)
+
+	app := &application{
+		config:    config{maxBacklog: 10},
+		processor: processor,
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	response := httptest.NewRecorder()
+	app.mount().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status code %d; got %d", http.StatusOK, response.Code)
+	}
+	var status statusResponse
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	checkCount(t, "stream length", 1, status.StreamLength)
+	checkCount(t, "pending events", 1, status.PendingEvents)
+	checkCount(t, "configured limit", 10, status.ConfiguredLimit)
+	if status.CapacityUsedPercent != 10 {
+		t.Errorf("expected capacity used=10%%; got %.2f%%", status.CapacityUsedPercent)
+	}
+	if status.OldestEventAgeMS < 0 {
+		t.Errorf("expected a non-negative oldest event age; got %d", status.OldestEventAgeMS)
+	}
+
+	t.Logf("worker reports stream=%d, pending=%d, used=%.0f%%", status.StreamLength, status.PendingEvents, status.CapacityUsedPercent)
 }
 
 func newWorkerTestDependencies(t *testing.T) (*redis.Client, *pgxpool.Pool, string) {
