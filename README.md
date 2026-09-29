@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V12
+## Current scope: V13
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -38,9 +38,15 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - Approval events appended inside the token-bucket Lua execution
 - Shared event history across both API instances and Redis failover
 - AOF recovery of unconsumed approval events
+- A separate approval-event worker using a Redis consumer group
+- PostgreSQL-backed permanent approval history
+- Goose-managed schema migrations and sqlc-generated query code
+- At-least-once delivery with idempotent `stream_id` inserts
+- Recovery of abandoned pending entries with `XAUTOCLAIM`
+- Exact Redis cleanup only after a successful PostgreSQL commit
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, PostgreSQL, an event consumer, permanent billing history, analytics, or a dashboard.
+Not included yet: multi-host deployment, backlog alerting and backpressure, analytics APIs, or a dashboard.
 
 ## Run
 
@@ -48,7 +54,7 @@ Not included yet: multi-host deployment, PostgreSQL, an event consumer, permanen
 docker compose up -d --build
 ```
 
-The Compose stack runs two API instances against a Sentinel-managed Redis primary and replica. Its comparison gateways expose one instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure a standalone Redis address through `.env` or the process environment.
+The Compose stack runs two API instances against a Sentinel-managed Redis primary and replica. A separate worker moves approval events into PostgreSQL after Goose applies the schema. PostgreSQL is exposed at `localhost:5433`. The comparison gateways expose one API instance at `localhost:8083` and both instances at `localhost:8084`. Running the API directly requires Go 1.26 or newer; use `go run ./cmd/api` and configure a standalone Redis address through `.env` or the process environment.
 
 Redis Commander is available at `http://localhost:8082` and lists both Redis data nodes. Their names describe their startup roles; Sentinel may reverse those roles after failover.
 
@@ -76,17 +82,23 @@ See [`docs/redis-outage.md`](docs/redis-outage.md) for the measured runtime outa
 See [`docs/redis-high-availability.md`](docs/redis-high-availability.md) for the Sentinel failover and AOF recovery experiments.
 See [`docs/redis-resilience.md`](docs/redis-resilience.md) for bounded failure, circuit breaking, readiness, and recovery evidence.
 See [`docs/approval-events.md`](docs/approval-events.md) for the approval-event alternatives, guarantees, limitations, failover proof, and latency comparison.
+See [`docs/durable-approval-history.md`](docs/durable-approval-history.md) for PostgreSQL persistence, Goose/sqlc organization, at-least-once delivery, safe cleanup, and outage recovery.
 
 ## Repository layout
 
 ```text
 cmd/api/                  composition, config, routing, handlers, HTTP helpers, lifecycle
+cmd/worker/               approval consumer composition, configuration, and lifecycle
 benchmarks/               algorithm experiments and HTTP load-test inputs
 deploy/nginx/             comparable single-instance and distributed gateways
 deploy/redis/             Sentinel configuration template
 internal/env/             environment lookup helper
+internal/events/          Redis consumption, PostgreSQL transaction, and cleanup workflow
+internal/database/        sqlc-generated PostgreSQL models and queries
 internal/ratelimiter/     limiter contract and isolated algorithm implementations
 internal/store/           external storage client construction
+sql/schema/               Goose database migrations
+sql/queries/              SQL source used by sqlc
 docs/                     requirements and API contract
 Dockerfile                production-style API image
 docker-compose.yaml       Redis HA and replicated API topology
@@ -96,4 +108,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Approved decisions now enter a shared recoverable stream without a second network round trip. The next phase will demonstrate the stream's growth, introduce an idempotent background consumer, and persist events into PostgreSQL before they are eligible for removal from Redis.
+Approved decisions now move from Redis into durable PostgreSQL history without putting PostgreSQL on the HTTP decision path. The next phase will measure prolonged backlog growth, expose worker lag and Redis memory pressure, and define explicit backpressure before Redis memory is exhausted.

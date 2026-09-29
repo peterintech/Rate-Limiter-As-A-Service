@@ -77,7 +77,7 @@ This phase also inherits V10's durability limits. Replication is asynchronous, a
 
 ## Why the stream is not trimmed
 
-There is no durable consumer yet. Deleting or trimming entries now could remove the only historical copy of an approval.
+V12 had no durable consumer. Deleting or trimming entries at that point could have removed the only historical copy of an approval.
 
 The deliberate V12 tradeoff is:
 
@@ -89,7 +89,7 @@ the Redis Stream grows
 V13 needs a durable consumer and PostgreSQL
 ```
 
-After a later worker persists an event idempotently, the project can acknowledge it and safely design a retention policy. V12 does not pretend that unbounded Redis memory is the final architecture.
+V13 now persists events idempotently and deletes only exact entries whose PostgreSQL transaction committed. Blind length- or age-based trimming is still not used. See [`durable-approval-history.md`](durable-approval-history.md) for the worker, delivery semantics, cleanup rule, and outage evidence.
 
 ## Application-level proof
 

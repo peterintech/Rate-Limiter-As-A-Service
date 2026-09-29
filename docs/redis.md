@@ -70,9 +70,9 @@ Repeated traffic refreshes the TTL because the bucket is still active. Both Redi
 
 ## Approved-request events
 
-The bucket is current enforcement state, not history. Every allowed decision also appends one entry to the configured Redis Stream inside the same Lua execution. Rejected requests do not append entries. The stream deliberately has no TTL or trimming policy until a later worker persists its entries outside Redis.
+The bucket is current enforcement state, not history. Every allowed decision also appends one entry to the configured Redis Stream inside the same Lua execution. Rejected requests do not append entries. The V13 worker persists those events to PostgreSQL and deletes only entries whose database transaction committed.
 
-See [`approval-events.md`](approval-events.md) for the alternatives considered, event fields, atomicity limits, failover and persistence experiments, and measured latency comparison.
+See [`approval-events.md`](approval-events.md) for event creation and [`durable-approval-history.md`](durable-approval-history.md) for consumer groups, idempotency, recovery, and safe cleanup.
 
 ## Local verification
 

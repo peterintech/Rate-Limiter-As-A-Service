@@ -169,14 +169,30 @@ The token bucket previously retained only its current balance and refill time. I
 - Redis Lua isolation prevents command interleaving but does not provide rollback after every possible runtime failure.
 - Stream durability still inherits asynchronous replication and AOF `everysec` loss windows.
 
+## V13: durable approval-event consumer
+
+The Redis Stream is now a temporary delivery buffer instead of the permanent history store.
+
+- A separate worker reads approvals with a Redis consumer group.
+- PostgreSQL schema changes are managed by Goose under `sql/schema`.
+- Handwritten queries live under `sql/queries` and sqlc generates their Go implementation in `internal/database`.
+- A PostgreSQL transaction commits a complete batch before Redis cleanup begins.
+- The Redis stream ID is the database primary key, making repeated delivery idempotent.
+- Cleanup acknowledges and deletes only the exact committed stream IDs; length- and age-based trimming are not used.
+- A replacement worker uses `XAUTOCLAIM` to recover sufficiently idle pending entries.
+- Stopping the worker allows Redis to buffer approvals without changing API responses; restarting it drains the backlog.
+- Stopping PostgreSQL also leaves rate-limit decisions available while events remain in Redis.
+- The system provides at-least-once delivery with idempotent storage, not an exactly-once claim.
+- PostgreSQL runs on host port `5433` in Compose so it can coexist with another local database on the conventional `5432` port.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
-- There is no multi-host failure isolation, Postgres, queue, durable usage logging, or analytics dashboard yet.
-- Permanent PostgreSQL usage history, stream consumption, analytics, and multi-host failure isolation remain deferred.
+- There is no multi-host failure isolation, backlog alerting, analytics API, or dashboard yet.
+- A prolonged worker or PostgreSQL outage can still grow the Redis Stream until Redis memory is exhausted.
 
 ## Current acceptance criteria
 
@@ -193,6 +209,8 @@ The service is not production-ready:
 - Idle Redis bucket keys expire instead of accumulating indefinitely.
 - Runtime Redis loss returns bounded HTTP 503 responses while liveness remains healthy and readiness reports unavailable.
 - Every successful approval creates one shared Redis Stream event; rejected decisions create none.
+- Every consumed approval is stored once in PostgreSQL before its exact Redis entry is removed.
+- Abandoned pending approvals can be claimed by another worker without duplicating history.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.

@@ -358,6 +358,36 @@ Two API instances wrote weighted approvals into one stream while a rejected requ
 
 The untrimmed stream grows with every approval and retains Redis's asynchronous-replication and AOF durability limits. V13 now has a concrete reason to add a background consumer and permanent PostgreSQL storage.
 
+## V13: move approval history out of Redis
+
+### Problem
+
+V12 retained every approval indefinitely. At 1,000 approvals per second, that is 86.4 million new stream entries per day. Redis is appropriate for active rate-limit state and short-lived delivery, but not for unbounded billing history.
+
+### Options considered
+
+- Write PostgreSQL synchronously before returning HTTP 200.
+- Trim Redis by a maximum length or age.
+- Use a separate worker, persist idempotently, and delete only committed event IDs.
+
+### Decision
+
+We added a separate approval worker, PostgreSQL, Goose migrations, and sqlc-generated queries. The worker reads through one Redis consumer group, commits each batch to PostgreSQL, and only then acknowledges and deletes those exact Redis entries.
+
+### Why
+
+Synchronous database writes would make PostgreSQL latency and availability part of every decision. Blind trimming could delete the only copy of an event during a database outage. The worker keeps durable storage off the HTTP path while the PostgreSQL primary key on `stream_id` makes redelivery idempotent.
+
+The worker is a separate process because it has a different scaling and failure lifecycle from the API. Goose keeps schema changes explicit and reversible; sqlc preserves visible SQL while generating compile-time-checked Go calls. An ORM and a generic event framework would add abstraction without solving another demonstrated problem.
+
+### Evidence
+
+With the worker stopped, three HTTP 200 approvals accumulated as three Redis entries and PostgreSQL did not change. Restarting the worker added exactly three rows and drained the stream. With PostgreSQL stopped, two approvals still returned HTTP 200 and remained in Redis. After PostgreSQL returned, both were persisted; the entry already pending was recovered through `XAUTOCLAIM` after the configured 30-second idle period. Redis then reported zero stream entries and zero pending entries.
+
+### Tradeoff carried forward
+
+Normal processing now bounds stream growth, but a prolonged PostgreSQL or worker outage still creates an unbounded backlog. V14 must add lag and memory observability and choose an explicit backpressure policy. It must not disguise the problem with unsafe blind trimming.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:
