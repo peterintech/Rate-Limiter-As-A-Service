@@ -90,6 +90,12 @@ services:
       ENV: test
       REDIS_MASTER_NAME: rate-limiter-primary
       REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 200ms
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_DECISION_TIMEOUT: 300ms
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
+      CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
     depends_on:
       redis-sentinel-1:
         condition: service_healthy
@@ -111,6 +117,12 @@ services:
       ENV: test
       REDIS_MASTER_NAME: rate-limiter-primary
       REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 200ms
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_DECISION_TIMEOUT: 300ms
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
+      CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
     depends_on:
       redis-sentinel-1:
         condition: service_healthy

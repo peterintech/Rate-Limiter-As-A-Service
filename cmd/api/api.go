@@ -16,9 +16,10 @@ import (
 )
 
 type application struct {
-	config      config
-	logger      *zap.SugaredLogger
-	rateLimiter ratelimiter.Limiter
+	config         config
+	logger         *zap.SugaredLogger
+	rateLimiter    ratelimiter.Limiter
+	readinessCheck func(context.Context) error
 }
 
 func (app *application) mount() *chi.Mux {
@@ -32,6 +33,7 @@ func (app *application) mount() *chi.Mux {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
+		r.Get("/readiness", app.readinessCheckHandler)
 		r.Post("/check", app.checkRateLimitHandler)
 	})
 

@@ -40,6 +40,8 @@ func (app *application) checkRateLimitHandler(w http.ResponseWriter, r *http.Req
 	}, payload.Cost)
 	if err != nil {
 		switch {
+		case errors.Is(err, ratelimiter.ErrUnavailable):
+			app.serviceUnavailableError(w, r, err)
 		case errors.Is(err, ratelimiter.ErrNoPolicy):
 			app.notFoundError(w, r, err)
 		case errors.Is(err, ratelimiter.ErrInvalidCost), errors.Is(err, ratelimiter.ErrCostExceedsLimit):

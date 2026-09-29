@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/peterintech/global-rate-limiter/internal/ratelimiter"
@@ -25,21 +24,26 @@ func main() {
 	redisClient := newRedisClient(cfg.redisCfg)
 	defer redisClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.circuitBreakerCfg.DecisionTimeout)
 	defer cancel()
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		logger.Fatalw("failed to connect to Redis", "error", err)
 	}
 
-	limiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(redisClient, cfg.tokenBucketPolicies, ratelimiter.RedisTokenBucketConfig{})
+	redisLimiter, err := ratelimiter.NewRedisTokenBucketRateLimiter(redisClient, cfg.tokenBucketPolicies, ratelimiter.RedisTokenBucketConfig{})
 	if err != nil {
 		logger.Fatalw("failed to create rate limiter", "error", err)
 	}
+	limiter, err := ratelimiter.NewCircuitBreakerLimiter(redisLimiter, cfg.circuitBreakerCfg)
+	if err != nil {
+		logger.Fatalw("failed to protect rate limiter", "error", err)
+	}
 
 	app := &application{
-		config:      cfg,
-		logger:      logger,
-		rateLimiter: limiter,
+		config:         cfg,
+		logger:         logger,
+		rateLimiter:    limiter,
+		readinessCheck: newRedisReadinessCheck(redisClient, limiter, cfg.circuitBreakerCfg.DecisionTimeout),
 	}
 
 	if err := app.run(app.mount()); err != nil {
