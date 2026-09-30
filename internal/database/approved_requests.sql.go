@@ -45,3 +45,147 @@ func (q *Queries) CreateApprovedRequest(ctx context.Context, arg CreateApprovedR
 	)
 	return err
 }
+
+const getApprovalSummary = `-- name: GetApprovalSummary :one
+SELECT
+    COUNT(*)::BIGINT AS total_approvals,
+    COALESCE(SUM(cost), 0)::BIGINT AS total_cost,
+    COALESCE(EXTRACT(EPOCH FROM MIN(approved_at)) * 1000, 0)::BIGINT AS first_approval_at_ms,
+    COALESCE(EXTRACT(EPOCH FROM MAX(approved_at)) * 1000, 0)::BIGINT AS latest_approval_at_ms
+FROM approved_requests
+WHERE approved_at >= NOW() - ($1::INTEGER * INTERVAL '1 day')
+  AND ($2::TEXT = '' OR client_id = $2)
+  AND ($3::TEXT = '' OR resource = $3)
+`
+
+type GetApprovalSummaryParams struct {
+	Days     int32  `json:"days"`
+	ClientID string `json:"client_id"`
+	Resource string `json:"resource"`
+}
+
+type GetApprovalSummaryRow struct {
+	TotalApprovals     int64 `json:"total_approvals"`
+	TotalCost          int64 `json:"total_cost"`
+	FirstApprovalAtMs  int64 `json:"first_approval_at_ms"`
+	LatestApprovalAtMs int64 `json:"latest_approval_at_ms"`
+}
+
+func (q *Queries) GetApprovalSummary(ctx context.Context, arg GetApprovalSummaryParams) (GetApprovalSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getApprovalSummary, arg.Days, arg.ClientID, arg.Resource)
+	var i GetApprovalSummaryRow
+	err := row.Scan(
+		&i.TotalApprovals,
+		&i.TotalCost,
+		&i.FirstApprovalAtMs,
+		&i.LatestApprovalAtMs,
+	)
+	return i, err
+}
+
+const listApprovalSummaryByPolicy = `-- name: ListApprovalSummaryByPolicy :many
+SELECT
+    client_id,
+    resource,
+    COUNT(*)::BIGINT AS total_approvals,
+    COALESCE(SUM(cost), 0)::BIGINT AS total_cost
+FROM approved_requests
+WHERE approved_at >= NOW() - ($1::INTEGER * INTERVAL '1 day')
+  AND ($2::TEXT = '' OR client_id = $2)
+  AND ($3::TEXT = '' OR resource = $3)
+GROUP BY client_id, resource
+ORDER BY client_id, resource
+`
+
+type ListApprovalSummaryByPolicyParams struct {
+	Days     int32  `json:"days"`
+	ClientID string `json:"client_id"`
+	Resource string `json:"resource"`
+}
+
+type ListApprovalSummaryByPolicyRow struct {
+	ClientID       string `json:"client_id"`
+	Resource       string `json:"resource"`
+	TotalApprovals int64  `json:"total_approvals"`
+	TotalCost      int64  `json:"total_cost"`
+}
+
+func (q *Queries) ListApprovalSummaryByPolicy(ctx context.Context, arg ListApprovalSummaryByPolicyParams) ([]ListApprovalSummaryByPolicyRow, error) {
+	rows, err := q.db.Query(ctx, listApprovalSummaryByPolicy, arg.Days, arg.ClientID, arg.Resource)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListApprovalSummaryByPolicyRow{}
+	for rows.Next() {
+		var i ListApprovalSummaryByPolicyRow
+		if err := rows.Scan(
+			&i.ClientID,
+			&i.Resource,
+			&i.TotalApprovals,
+			&i.TotalCost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDailyApprovalTrends = `-- name: ListDailyApprovalTrends :many
+SELECT
+    (approved_at AT TIME ZONE 'UTC')::DATE AS day,
+    client_id,
+    resource,
+    COUNT(*)::BIGINT AS total_approvals,
+    COALESCE(SUM(cost), 0)::BIGINT AS total_cost
+FROM approved_requests
+WHERE approved_at >= NOW() - ($1::INTEGER * INTERVAL '1 day')
+  AND ($2::TEXT = '' OR client_id = $2)
+  AND ($3::TEXT = '' OR resource = $3)
+GROUP BY (approved_at AT TIME ZONE 'UTC')::DATE, client_id, resource
+ORDER BY day, client_id, resource
+`
+
+type ListDailyApprovalTrendsParams struct {
+	Days     int32  `json:"days"`
+	ClientID string `json:"client_id"`
+	Resource string `json:"resource"`
+}
+
+type ListDailyApprovalTrendsRow struct {
+	Day            pgtype.Date `json:"day"`
+	ClientID       string      `json:"client_id"`
+	Resource       string      `json:"resource"`
+	TotalApprovals int64       `json:"total_approvals"`
+	TotalCost      int64       `json:"total_cost"`
+}
+
+func (q *Queries) ListDailyApprovalTrends(ctx context.Context, arg ListDailyApprovalTrendsParams) ([]ListDailyApprovalTrendsRow, error) {
+	rows, err := q.db.Query(ctx, listDailyApprovalTrends, arg.Days, arg.ClientID, arg.Resource)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDailyApprovalTrendsRow{}
+	for rows.Next() {
+		var i ListDailyApprovalTrendsRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.ClientID,
+			&i.Resource,
+			&i.TotalApprovals,
+			&i.TotalCost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

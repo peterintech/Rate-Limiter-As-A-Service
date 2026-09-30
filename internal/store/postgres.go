@@ -7,7 +7,7 @@ import (
 )
 
 func NewPostgresPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := OpenPostgresPool(ctx, databaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -18,4 +18,10 @@ func NewPostgresPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, er
 	}
 
 	return pool, nil
+}
+
+// OpenPostgresPool creates a reconnecting pool without requiring PostgreSQL to
+// be reachable at startup. Callers choose whether the dependency is required.
+func OpenPostgresPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	return pgxpool.New(ctx, databaseURL)
 }
