@@ -1,0 +1,135 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 30s
+
+tests:
+  - name: healthy deployment stays quiet
+    interval: 30s
+    input_series:
+      - series: 'up{job="rate-limiter-api",instance="api-1:8080"}'
+        values: '1+0x12'
+      - series: 'up{job="rate-limiter-api",instance="api-2:8080"}'
+        values: '1+0x12'
+      - series: 'rate_limiter_decisions_total{instance="api-1:8080",outcome="allowed",resource="openai"}'
+        values: '0+10x12'
+      - series: 'rate_limiter_decisions_total{instance="api-2:8080",outcome="allowed",resource="openai"}'
+        values: '0+10x12'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RateLimiterInstanceDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RateLimiterDeploymentDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RateLimiterHighQuotaRejectionRatio
+        exp_alerts: []
+
+  - name: one unavailable instance warns without declaring the deployment down
+    interval: 30s
+    input_series:
+      - series: 'up{job="rate-limiter-api",instance="api-1:8080"}'
+        values: '0+0x6'
+      - series: 'up{job="rate-limiter-api",instance="api-2:8080"}'
+        values: '1+0x6'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: RateLimiterInstanceDown
+        exp_alerts:
+          - exp_labels:
+              instance: api-1:8080
+              job: rate-limiter-api
+              severity: warning
+            exp_annotations:
+              summary: Rate limiter API instance is unavailable
+              description: api-1:8080 has not been scraped successfully for one minute.
+      - eval_time: 2m
+        alertname: RateLimiterDeploymentDown
+        exp_alerts: []
+
+  - name: complete deployment outage becomes critical
+    interval: 30s
+    input_series:
+      - series: 'up{job="rate-limiter-api",instance="api-1:8080"}'
+        values: '0+0x4'
+      - series: 'up{job="rate-limiter-api",instance="api-2:8080"}'
+        values: '0+0x4'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RateLimiterDeploymentDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: All rate limiter API instances are unavailable
+              description: Prometheus cannot reach any rate limiter API instance.
+
+  - name: dependency failures must persist before firing
+    interval: 30s
+    input_series:
+      - series: 'rate_limiter_decisions_total{instance="api-1:8080",outcome="dependency_unavailable",resource="openai"}'
+        values: '0+1x8'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: RateLimiterDependencyUnavailable
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: RateLimiterDependencyUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Rate limiter dependency failures are continuing
+              description: Authoritative rate limit decisions have failed continuously for one minute.
+
+  - name: one backlog refusal fires immediately
+    interval: 30s
+    input_series:
+      - series: 'rate_limiter_decisions_total{instance="api-1:8080",outcome="backlog_full",resource="openai"}'
+        values: '0 1 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RateLimiterApprovalBacklogFull
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Approval event backlog is full
+              description: At least one otherwise valid approval was refused to protect unpersisted history.
+
+  - name: sustained high rejection ratio warns only with meaningful traffic
+    interval: 30s
+    input_series:
+      - series: 'rate_limiter_decisions_total{instance="api-1:8080",outcome="allowed",resource="openai"}'
+        values: '0+20x24'
+      - series: 'rate_limiter_decisions_total{instance="api-1:8080",outcome="quota_rejected",resource="openai"}'
+        values: '0+20x24'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: RateLimiterHighQuotaRejectionRatio
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Rate limiter quota rejection ratio is high
+              description: More than 25 percent of decisions are quota rejections while traffic exceeds one request per second.
+
+  - name: sustained high p95 latency warns
+    interval: 30s
+    input_series:
+      - series: 'rate_limiter_decision_duration_seconds_bucket{instance="api-1:8080",outcome="allowed",resource="openai",le="0.01"}'
+        values: '0+0x24'
+      - series: 'rate_limiter_decision_duration_seconds_bucket{instance="api-1:8080",outcome="allowed",resource="openai",le="0.025"}'
+        values: '0+20x24'
+      - series: 'rate_limiter_decision_duration_seconds_bucket{instance="api-1:8080",outcome="allowed",resource="openai",le="+Inf"}'
+        values: '0+20x24'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: RateLimiterHighDecisionLatency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Rate limiter p95 decision latency is high
+              description: Cluster p95 decision latency has remained above 10 milliseconds for five minutes.

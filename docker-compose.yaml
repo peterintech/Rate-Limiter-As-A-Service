@@ -1,0 +1,320 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: rate_limiter
+      POSTGRES_USER: rate_limiter
+      POSTGRES_PASSWORD: rate_limiter
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rate_limiter -d rate_limiter"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      GOOSE_MIGRATION_DIR: /migrations
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  grafana-database-role:
+    image: postgres:17.6-alpine3.22
+    entrypoint: ["psql"]
+    command:
+      - --host=postgres
+      - --username=rate_limiter
+      - --dbname=rate_limiter
+      - --set=reader_password=${GRAFANA_DATABASE_PASSWORD:-grafana-reader}
+      - --file=/setup/grafana-reader.sql
+    environment:
+      PGPASSWORD: rate_limiter
+    volumes:
+      - ./deploy/postgres/grafana-reader.sql:/setup/grafana-reader.sql:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  redis-primary:
+    image: redis:7.4.11-alpine3.21
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis-primary-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-replica:
+    image: redis:7.4.11-alpine3.21
+    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis-replica-data:/data
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-1:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-2:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis-sentinel-3:
+    image: redis:7.4.11-alpine3.21
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  api-1:
+    build:
+      context: .
+      target: api
+    cpus: 4.0
+    environment:
+      PORT: 8080
+      ENV: test
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 200ms
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_DECISION_TIMEOUT: 300ms
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
+      CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
+      DATABASE_URL: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      ANALYTICS_QUERY_TIMEOUT: 1s
+    depends_on:
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  api-2:
+    build:
+      context: .
+      target: api
+    cpus: 4.0
+    environment:
+      PORT: 8080
+      ENV: test
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 200ms
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_DECISION_TIMEOUT: 300ms
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: 3
+      CIRCUIT_BREAKER_OPEN_TIMEOUT: 5s
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
+      DATABASE_URL: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      ANALYTICS_QUERY_TIMEOUT: 1s
+    depends_on:
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  approval-worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      WORKER_PORT: 8081
+      DATABASE_URL: postgres://rate_limiter:rate_limiter@postgres:5432/rate_limiter?sslmode=disable
+      REDIS_MASTER_NAME: rate-limiter-primary
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_DIAL_TIMEOUT: 500ms
+      REDIS_READ_TIMEOUT: 3s
+      REDIS_WRITE_TIMEOUT: 200ms
+      RATE_LIMIT_EVENT_STREAM: rate_limit:approved_requests
+      APPROVAL_WORKER_GROUP: approval-history
+      APPROVAL_WORKER_BATCH_SIZE: 100
+      APPROVAL_WORKER_BLOCK: 1s
+      APPROVAL_WORKER_CLAIM_IDLE: 30s
+      APPROVAL_WORKER_CLAIM_INTERVAL: 10s
+      APPROVAL_WORKER_RETRY_BACKOFF: 1s
+      APPROVAL_WORKER_STATUS_INTERVAL: 5s
+      APPROVAL_WORKER_BACKLOG_WARNING_PERCENT: 80
+      RATE_LIMIT_EVENT_MAX_BACKLOG: 100000
+    ports:
+      - "8085:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/v1/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  single-gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8083:8080"
+    volumes:
+      - ./deploy/nginx/single.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api-1:
+        condition: service_healthy
+
+  distributed-gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8084:8080"
+    volumes:
+      - ./deploy/nginx/distributed.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.5.5
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-rate-limiter-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GRAFANA_DATABASE_PASSWORD: ${GRAFANA_DATABASE_PASSWORD:-grafana-reader}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+      grafana-database-role:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 15
+
+  redis-commander:
+    image: rediscommander/redis-commander@sha256:19cd0c49f418779fa2822a0496c5e6516d0c792effc39ed20089e6268477e40a
+    environment:
+      REDIS_HOSTS: primary:redis-primary:6379,replica:redis-replica:6379
+    ports:
+      - "8082:8081"
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-primary-data:
+  redis-replica-data:
+  prometheus-data:
+  grafana-data:

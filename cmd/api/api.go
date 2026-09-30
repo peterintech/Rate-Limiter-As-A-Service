@@ -11,20 +11,18 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterintech/global-rate-limiter/internal/ratelimiter"
 	"go.uber.org/zap"
 )
 
 type application struct {
-	config      config
-	logger      *zap.SugaredLogger
-	rateLimiter ratelimiter.Limiter
-}
-
-type config struct {
-	addr                string
-	env                 string
-	tokenBucketPolicies ratelimiter.TokenBucketPolicies
+	config         config
+	logger         *zap.SugaredLogger
+	rateLimiter    ratelimiter.Limiter
+	readinessCheck func(context.Context) error
+	database       *pgxpool.Pool
+	metrics        *apiMetrics
 }
 
 func (app *application) mount() *chi.Mux {
@@ -32,13 +30,17 @@ func (app *application) mount() *chi.Mux {
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
-	if app.config.env != "test" {
-		r.Use(middleware.Logger)
-	}
+	// if app.config.env != "test" {
+	// 	r.Use(middleware.Logger)
+	// }
 
+	r.Method(http.MethodGet, "/metrics", app.metrics.handler())
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
+		r.Get("/readiness", app.readinessCheckHandler)
 		r.Post("/check", app.checkRateLimitHandler)
+		r.Get("/analytics/summary", app.approvalSummaryHandler)
+		r.Get("/analytics/trends", app.approvalTrendsHandler)
 	})
 
 	return r

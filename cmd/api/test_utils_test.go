@@ -19,10 +19,15 @@ func newTestApplication(t *testing.T, cfg config, now func() time.Time) *applica
 		t.Fatal(err)
 	}
 
+	return newTestApplicationWithLimiter(cfg, limiter)
+}
+
+func newTestApplicationWithLimiter(cfg config, limiter ratelimiter.Limiter) *application {
 	return &application{
 		config:      cfg,
 		logger:      zap.NewNop().Sugar(),
 		rateLimiter: limiter,
+		metrics:     newAPIMetrics(cfg.tokenBucketPolicies, false),
 	}
 }
 
