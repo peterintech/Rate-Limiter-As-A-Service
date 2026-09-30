@@ -235,13 +235,28 @@ The API now exposes Prometheus metrics for the complete live decision path while
 - Stopping Prometheus did not interrupt rate-limit decisions or liveness, and scraping recovered without restarting either API.
 - Local Prometheus storage is neither replicated nor a billing ledger. Losing its volume can lose operational history without changing authoritative rate-limit or approved-usage state.
 
+## V17: dashboard and alert evaluation
+
+The raw operational and historical signals now have one reproducible operator view.
+
+- Grafana is provisioned from repository files and combines Prometheus service health with PostgreSQL approved-usage history.
+- Anonymous local access is Viewer-only; administrator credentials remain environment-configurable.
+- A dedicated `grafana_reader` role has SELECT access to approved history and no write grant.
+- Dashboard filters preserve bounded metric labels and do not introduce client identifiers into Prometheus.
+- Prometheus evaluates availability, dependency, backlog, latency, and rejection-ratio alerts.
+- Every alert rule has deterministic `promtool` coverage for its threshold and persistence behaviour.
+- Stopping one API instance fires a warning while the distributed gateway continues serving through the remaining instance.
+- Grafana, Prometheus, and PostgreSQL outage checks show that monitoring and historical reporting are not synchronous dependencies of a rate-limit decision.
+- Alertmanager and external notification delivery are intentionally not configured because routing requires deployment-specific ownership and credentials.
+- Grafana and Prometheus still run on the application host, so this phase does not claim monitoring failure-domain independence.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
-- There is no multi-host failure isolation, external backlog alert delivery, curated dashboard, or alert routing yet.
+- There is no multi-host failure isolation, replicated monitoring storage, external alert delivery, or alert routing yet.
 - A prolonged worker or PostgreSQL outage stops new approvals at the configured backlog limit; external alert delivery is not implemented yet.
 
 ## Current acceptance criteria
@@ -265,6 +280,8 @@ The service is not production-ready:
 - Approved usage and weighted-cost trends are queryable for 10, 15, and 30-day periods without making PostgreSQL part of rate-limit enforcement.
 - Every decision outcome and complete handler latency are exposed with bounded metric labels and can be aggregated across API instances.
 - Prometheus failure does not stop rate-limit decisions, and public gateways do not expose the metrics endpoint.
+- A provisioned dashboard displays live cluster health and durable approved usage without giving Grafana write access to the ledger.
+- Availability and decision-quality alert rules pass deterministic tests, and one lost API instance alerts without stopping the distributed route.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.

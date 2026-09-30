@@ -484,6 +484,40 @@ Stopping Prometheus did not affect the decision path: a rate-limit check and liv
 
 Raw PromQL proves the signals exist, but it is not yet a concise operational view. There are no curated panels or justified alert thresholds. V17 can add Grafana only now that the underlying metrics and their failure isolation have been demonstrated.
 
+## V17: turn signals into an operational view
+
+### Problem
+
+V16 exposed trustworthy metrics, but operators still needed to know PromQL, switch between Prometheus and PostgreSQL, and notice failures manually. Raw telemetry is evidence; it is not yet an operational workflow.
+
+### Options considered
+
+- Build a custom HTMX dashboard and own its charts, authentication, refresh logic, datasource clients, and alert presentation.
+- Use only Prometheus's expression browser and keep durable usage in separate SQL queries.
+- Provision Grafana over the existing Prometheus and PostgreSQL sources, and evaluate alert rules in Prometheus.
+
+### Decision
+
+We chose a pinned Grafana release with repository-owned datasource and dashboard provisioning. One dashboard combines current operational health from Prometheus with approved-usage history from PostgreSQL. Prometheus evaluates six deliberately small alert rules, each backed by deterministic `promtool` tests. Alert delivery is not included.
+
+### Why
+
+A custom dashboard would spend project complexity rebuilding established operations tooling without improving rate-limit correctness. Grafana can visualize both stores while remaining outside the request path. Prometheus owns alert evaluation because it already owns the time series and can test rule behaviour without Grafana or a live incident.
+
+Grafana receives a dedicated SELECT-only PostgreSQL role. It cannot mutate the approval ledger. Anonymous access is Viewer-only for local teaching; administrator credentials remain configurable. The dashboard keeps the bounded label decisions from V16 and does not reintroduce client identifiers into metrics.
+
+Thresholds follow existing evidence rather than arbitrary defaults. The 10 ms latency warning is tied to V8's p99 acceptance target and requires a sustained five-minute p95 breach. Availability rules tolerate missed scrapes according to urgency. One backlog refusal remains immediately actionable because V14 proved it means an otherwise valid approval was refused.
+
+### Evidence
+
+All six alert behaviours passed deterministic rule tests. Grafana 13.2.3 started from an empty local volume, provisioned both datasources and the `Global Rate Limiter` dashboard, and connected to PostgreSQL with a read-only grant. Stopping one API instance fired `RateLimiterInstanceDown` after the configured minute while the other instance kept the gateway at HTTP 200.
+
+Independent outage checks showed the intended dependency direction: stopping Grafana left API and Prometheus health at 200; stopping Prometheus left the API and PostgreSQL available; stopping PostgreSQL left an immediate Redis-backed decision and Prometheus available. Observability can fail without becoming part of authoritative enforcement.
+
+### Tradeoff carried forward
+
+The local dashboard and alert evaluator share one host with the system they observe, and no Alertmanager or external notification channel delivers firing alerts. Those are deployment concerns requiring real failure domains, ownership, credentials, and routing policy. The core educational build is complete; the remaining work is release verification and integration, not another feature phase.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:

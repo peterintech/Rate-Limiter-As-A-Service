@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V16
+## Current scope: V17
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -56,9 +56,13 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - Bounded `outcome` and `resource` labels without client identifiers
 - Private scraping of both API instances with 30-day local retention
 - Monitoring failure isolated from rate-limit decisions
+- A provisioned Grafana dashboard combining live Prometheus signals with durable PostgreSQL usage
+- A dedicated read-only PostgreSQL role for dashboard queries
+- Tested Prometheus alerts for availability, dependency failure, backlog refusal, latency, and quota rejection
+- Runtime proof that losing one API instance fires an alert while the distributed gateway remains available
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, external alert delivery, a curated dashboard, or alert rules.
+Not included: multi-host deployment, replicated monitoring storage, external alert delivery, or production credential management.
 
 ## Run
 
@@ -71,6 +75,7 @@ The Compose stack runs two API instances against a Sentinel-managed Redis primar
 Redis Commander is available at `http://localhost:8082` and lists both Redis data nodes. Their names describe their startup roles; Sentinel may reverse those roles after failover.
 The worker exposes liveness, readiness, and backlog status at `http://localhost:8085/v1/health`, `/v1/readiness`, and `/v1/status`.
 Prometheus is available at `http://localhost:9090` and scrapes both APIs inside the Compose network. The public gateways deliberately return 404 for `/metrics`.
+Grafana is available at `http://localhost:3000` with a provisioned `Global Rate Limiter` dashboard. Anonymous access is read-only; local administrator and PostgreSQL reader credentials are configured through `.env`.
 
 ```text
 curl -i -X POST http://localhost:8083/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
@@ -100,6 +105,7 @@ See [`docs/durable-approval-history.md`](docs/durable-approval-history.md) for P
 See [`docs/backlog-protection.md`](docs/backlog-protection.md) for the V14 failure policy, atomic admission rule, worker signals, and recovery evidence.
 See [`docs/historical-usage-reporting.md`](docs/historical-usage-reporting.md) for V15's reporting contract, query-plan evidence, outage isolation, and explicit data limitations.
 See [`docs/operational-metrics.md`](docs/operational-metrics.md) for V16's metrics contract, cardinality choices, PromQL examples, and outage-isolation evidence.
+See [`docs/dashboard-and-alerting.md`](docs/dashboard-and-alerting.md) for V17's dashboard, alert rationale, rule tests, permissions, and runtime failure-isolation evidence.
 
 ## Repository layout
 
@@ -110,6 +116,8 @@ benchmarks/               algorithm experiments and HTTP load-test inputs
 deploy/nginx/             comparable single-instance and distributed gateways
 deploy/redis/             Sentinel configuration template
 deploy/prometheus/        Prometheus scrape configuration
+deploy/grafana/           provisioned datasources and operational dashboard
+deploy/postgres/          deployment-specific read-only dashboard role
 internal/env/             environment lookup helper
 internal/events/          Redis consumption, PostgreSQL transaction, and cleanup workflow
 internal/database/        sqlc-generated PostgreSQL models and queries
@@ -126,4 +134,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Operational outcomes and decision latency are now measurable across both API instances without putting Prometheus on the decision path. The next phase will turn these signals into a focused Grafana dashboard and justify alert thresholds from observed behavior.
+The core build is complete: enforcement, distribution, resilience, durable history, reporting, metrics, dashboarding, and alert evaluation are all represented with evidence. The remaining work is a release pass—run the complete end-to-end verification, review the teaching narrative, produce the final architecture image and archive, then integrate the approved phase branches into the central branch. External alert delivery and true multi-host deployment remain production extensions rather than another core phase.
