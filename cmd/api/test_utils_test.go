@@ -27,6 +27,7 @@ func newTestApplicationWithLimiter(cfg config, limiter ratelimiter.Limiter) *app
 		config:      cfg,
 		logger:      zap.NewNop().Sugar(),
 		rateLimiter: limiter,
+		metrics:     newAPIMetrics(cfg.tokenBucketPolicies, false),
 	}
 }
 

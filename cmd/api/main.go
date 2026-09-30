@@ -44,6 +44,7 @@ func main() {
 	if err != nil {
 		logger.Fatalw("failed to protect rate limiter", "error", err)
 	}
+	metrics := newAPIMetrics(cfg.tokenBucketPolicies, true)
 
 	app := &application{
 		config:         cfg,
@@ -51,6 +52,7 @@ func main() {
 		rateLimiter:    limiter,
 		readinessCheck: newRedisReadinessCheck(redisClient, limiter, cfg.circuitBreakerCfg.DecisionTimeout),
 		database:       postgresPool,
+		metrics:        metrics,
 	}
 
 	if err := app.run(app.mount()); err != nil {
