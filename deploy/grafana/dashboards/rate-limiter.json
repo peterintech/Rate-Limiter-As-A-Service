@@ -1,0 +1,239 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Live decision health from Prometheus and durable approved usage from PostgreSQL.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "panels": [],
+      "title": "Current service health",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "orange", "value": 1}, {"color": "green", "value": 2}]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(up{job=\"rate-limiter-api\"})", "instant": true, "legendFormat": "Healthy APIs", "range": false, "refId": "A"}],
+      "title": "Healthy API instances",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "decimals": 1, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(rate(rate_limiter_decisions_total[1m]))", "instant": true, "legendFormat": "Decisions", "range": false, "refId": "A"}],
+      "title": "Decision rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 2, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "orange", "value": 0.005}, {"color": "red", "value": 0.01}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket[5m])))", "instant": true, "legendFormat": "p95", "range": false, "refId": "A"}],
+      "title": "p95 decision latency",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 5,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(ALERTS{alertstate=\"firing\"}) or vector(0)", "instant": true, "legendFormat": "Firing", "range": false, "refId": "A"}],
+      "title": "Firing alerts",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-BlPu"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "id": 6,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(rate_limiter_in_flight_requests)", "instant": true, "legendFormat": "In flight", "range": false, "refId": "A"}],
+      "title": "In-flight checks",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 1, "mappings": [], "max": 1, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 0.25}]}, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "id": 7,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(rate(rate_limiter_decisions_total{outcome=\"quota_rejected\"}[5m])) / clamp_min(sum(rate(rate_limiter_decisions_total[5m])), 0.001)", "instant": true, "legendFormat": "Rejected", "range": false, "refId": "A"}],
+      "title": "Quota rejection ratio",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 8,
+      "panels": [],
+      "title": "Decision traffic and latency",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 12, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 9,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome) (rate(rate_limiter_decisions_total{outcome=~\"$outcome\",resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{outcome}}", "range": true, "refId": "A"}],
+      "title": "Decision rate by outcome",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 6, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 10,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket{resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "p50", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket{resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "p95", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket{resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "p99", "range": true, "refId": "C"},
+        {"editorMode": "code", "expr": "sum(rate(rate_limiter_decision_duration_seconds_sum{resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum(rate(rate_limiter_decision_duration_seconds_count{resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval])), 0.001)", "legendFormat": "average", "range": true, "refId": "D"}
+      ],
+      "title": "Cluster decision latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "id": 11,
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (resource) (rate(rate_limiter_decisions_total{outcome=~\"$outcome\",resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{resource}}", "range": true, "refId": "A"}],
+      "title": "Decision rate by resource",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 35, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "id": 12,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome) (rate(rate_limiter_decisions_total{outcome=~\"dependency_unavailable|backlog_full|internal_error\",resource=~\"$resource\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{outcome}}", "range": true, "refId": "A"}],
+      "title": "Operational failures",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 22},
+      "id": 13,
+      "panels": [],
+      "title": "Approved usage history",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-BlPu"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 23},
+      "id": 14,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT COUNT(*)::double precision AS \"Approvals\" FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw});", "refId": "A"}],
+      "title": "Approved requests",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 23},
+      "id": 15,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT COALESCE(SUM(cost), 0)::double precision AS \"Weighted cost\" FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw});", "refId": "A"}],
+      "title": "Weighted cost",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-BlPu"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue"}]}, "unit": "dateTimeAsIso"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 23},
+      "id": 16,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT MIN(approved_at) AS \"First approval\" FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw});", "refId": "A"}],
+      "title": "First approval",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-BlPu"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue"}]}, "unit": "dateTimeAsIso"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 23},
+      "id": 17,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT MAX(approved_at) AS \"Latest approval\" FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw});", "refId": "A"}],
+      "title": "Latest approval",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 30, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 27},
+      "id": 18,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT date_trunc('day', approved_at) AS time, client_id || '/' || resource AS metric, COUNT(*)::double precision AS value FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw}) GROUP BY 1, 2 ORDER BY 1, 2;", "refId": "A"}],
+      "title": "Daily approvals by policy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 30, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 27},
+      "id": 19,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT date_trunc('day', approved_at) AS time, client_id || '/' || resource AS metric, SUM(cost)::double precision AS value FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw}) GROUP BY 1, 2 ORDER BY 1, 2;", "refId": "A"}],
+      "title": "Daily weighted cost by policy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "custom": {"align": "auto", "cellOptions": {"type": "auto"}, "filterable": true, "inspect": false}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 35},
+      "id": 20,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true},
+      "targets": [{"datasource": {"type": "postgres", "uid": "postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT client_id AS \"Client\", resource AS \"Resource\", COUNT(*) AS \"Approvals\", SUM(cost) AS \"Weighted cost\", MIN(approved_at) AS \"First approval\", MAX(approved_at) AS \"Latest approval\" FROM approved_requests WHERE approved_at >= NOW() - make_interval(days => ${days:raw}) GROUP BY client_id, resource ORDER BY \"Weighted cost\" DESC, \"Client\", \"Resource\";", "refId": "A"}],
+      "title": "Approved usage by policy",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["rate-limiter", "operations", "usage"],
+  "templating": {
+    "list": [
+      {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "hide": 0, "includeAll": true, "label": "Resource", "multi": true, "name": "resource", "options": [{"selected": false, "text": "openai", "value": "openai"}, {"selected": false, "text": "stripe", "value": "stripe"}, {"selected": false, "text": "unknown", "value": "unknown"}], "query": "openai,stripe,unknown", "skipUrlSync": false, "type": "custom"},
+      {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "hide": 0, "includeAll": true, "label": "Outcome", "multi": true, "name": "outcome", "options": [], "query": "allowed,quota_rejected,invalid_request,unknown_policy,backlog_full,dependency_unavailable,internal_error", "skipUrlSync": false, "type": "custom"},
+      {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "hide": 0, "includeAll": true, "label": "Instance", "multi": true, "name": "instance", "options": [], "query": "api-1:8080,api-2:8080", "skipUrlSync": false, "type": "custom"},
+      {"current": {"text": "30", "value": "30"}, "hide": 0, "includeAll": false, "label": "History (days)", "multi": false, "name": "days", "options": [{"selected": false, "text": "10", "value": "10"}, {"selected": false, "text": "15", "value": "15"}, {"selected": true, "text": "30", "value": "30"}], "query": "10,15,30", "skipUrlSync": false, "type": "custom"}
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s", "10s", "30s", "1m", "5m"], "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "7d", "30d"]},
+  "timezone": "browser",
+  "title": "Global Rate Limiter",
+  "uid": "global-rate-limiter",
+  "version": 1,
+  "weekStart": ""
+}

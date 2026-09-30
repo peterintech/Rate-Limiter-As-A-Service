@@ -28,6 +28,23 @@ services:
       postgres:
         condition: service_healthy
 
+  grafana-database-role:
+    image: postgres:17.6-alpine3.22
+    entrypoint: ["psql"]
+    command:
+      - --host=postgres
+      - --username=rate_limiter
+      - --dbname=rate_limiter
+      - --set=reader_password=${GRAFANA_DATABASE_PASSWORD:-grafana-reader}
+      - --file=/setup/grafana-reader.sql
+    environment:
+      PGPASSWORD: rate_limiter
+    volumes:
+      - ./deploy/postgres/grafana-reader.sql:/setup/grafana-reader.sql:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   redis-primary:
     image: redis:7.4.11-alpine3.21
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
@@ -248,12 +265,40 @@ services:
       - "9090:9090"
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     depends_on:
       api-1:
         condition: service_healthy
       api-2:
         condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-rate-limiter-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GRAFANA_DATABASE_PASSWORD: ${GRAFANA_DATABASE_PASSWORD:-grafana-reader}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+      grafana-database-role:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 15
 
   redis-commander:
     image: rediscommander/redis-commander@sha256:19cd0c49f418779fa2822a0496c5e6516d0c792effc39ed20089e6268477e40a
@@ -272,3 +317,4 @@ volumes:
   redis-primary-data:
   redis-replica-data:
   prometheus-data:
+  grafana-data:
