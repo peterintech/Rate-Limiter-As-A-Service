@@ -66,3 +66,26 @@ Returns `200 OK` when the API can reach Redis and the circuit breaker can attemp
 ```
 
 Returns `503 Service Unavailable` with `status: "not ready"` when the API cannot currently make authoritative decisions. Readiness does not spend quota.
+
+## `GET /v1/analytics/summary`
+
+Returns approved usage from PostgreSQL for a trailing 10, 15, or 30-day period:
+
+```text
+GET /v1/analytics/summary?days=10
+GET /v1/analytics/summary?days=30&client_id=client-b&resource=stripe
+```
+
+`client_id` and `resource` are optional exact-match filters. The response contains total approvals, total weighted cost, the first and latest approval, and a client/resource breakdown. Empty results return zero totals, `null` timestamps, and an empty `policies` array.
+
+## `GET /v1/analytics/trends`
+
+Returns daily approved-request counts and weighted costs for the same periods and optional filters:
+
+```text
+GET /v1/analytics/trends?days=15&client_id=client-b
+```
+
+Both analytics endpoints return `400` unless `days` is exactly `10`, `15`, or `30`. They return a bounded `503` when PostgreSQL is unavailable. Analytics failure does not affect `/v1/check` because PostgreSQL is not part of the rate-limit decision path.
+
+These endpoints report approved usage only. The current durable event contract does not contain rejected attempts or HTTP response latency, so those values are not inferred from incomplete data.

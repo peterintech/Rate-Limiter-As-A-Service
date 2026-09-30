@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V14
+## Current scope: V15
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -48,9 +48,12 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - Redis memory configured to reject writes instead of evicting authoritative quota or billing state
 - Worker liveness, dependency readiness, and backlog status endpoints
 - Backlog warning, full, recovery, and fully-drained transition logs
+- PostgreSQL-backed approved-usage summaries for trailing 10, 15, and 30-day periods
+- Daily approval and weighted-cost trends with optional client/resource filters
+- A reconnecting analytics dependency that can fail without stopping rate-limit decisions
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, external alert delivery, analytics APIs, or a dashboard.
+Not included yet: multi-host deployment, external alert delivery, complete decision/latency telemetry, or a dashboard.
 
 ## Run
 
@@ -89,6 +92,7 @@ See [`docs/redis-resilience.md`](docs/redis-resilience.md) for bounded failure, 
 See [`docs/approval-events.md`](docs/approval-events.md) for the approval-event alternatives, guarantees, limitations, failover proof, and latency comparison.
 See [`docs/durable-approval-history.md`](docs/durable-approval-history.md) for PostgreSQL persistence, Goose/sqlc organization, at-least-once delivery, safe cleanup, and outage recovery.
 See [`docs/backlog-protection.md`](docs/backlog-protection.md) for the V14 failure policy, atomic admission rule, worker signals, and recovery evidence.
+See [`docs/historical-usage-reporting.md`](docs/historical-usage-reporting.md) for V15's reporting contract, query-plan evidence, outage isolation, and explicit data limitations.
 
 ## Repository layout
 
@@ -114,4 +118,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-The delivery buffer now has an explicit safety boundary. A later phase can add externally delivered alerts and reporting APIs without weakening the rule that an approval is returned only when both quota state and its history event are accepted atomically.
+Approved usage is now queryable without putting PostgreSQL on the decision path. The next phase will measure every decision outcome and HTTP latency through low-cardinality operational metrics, providing the missing data for complete traffic and response-time views before a dashboard is built.

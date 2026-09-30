@@ -419,6 +419,37 @@ Concurrent applications created exactly five events against a five-entry test li
 
 The system deliberately sacrifices approval availability during a prolonged history-pipeline outage rather than lose history or destabilize Redis. Worker logs and status make the condition visible locally; external metrics, alert routing, and an operator response objective remain future operational work.
 
+## V15: expose durable approved-usage reporting
+
+### Problem
+
+PostgreSQL contained permanent approval history, but consumers needed direct database access to use it. The final system needs 10, 15, and 30-day views without moving database reads into the quota decision path.
+
+### Options considered
+
+- Query Redis, even though committed events are deliberately deleted.
+- Retain reporting counters inside expiring token buckets.
+- Read PostgreSQL during `/v1/check`.
+- Add isolated read-only analytics routes backed by PostgreSQL.
+
+### Decision
+
+We added summary and daily-trend endpoints for approved counts and weighted cost. They support exact client/resource filters and only the required 10, 15, and 30-day periods. Handwritten SQL and sqlc remain the database boundary. The API creates a reconnecting PostgreSQL pool without requiring the database to be reachable at startup, and each analytics request has a one-second deadline.
+
+### Why
+
+Redis represents active enforcement and unprocessed delivery, not durable history. PostgreSQL is already the authoritative reporting store. Keeping its pool and errors inside analytics handlers means a reporting outage returns a bounded 503 without changing the Redis-backed decision path.
+
+No new index was added speculatively. `EXPLAIN ANALYZE` used a one-page sequential scan and completed in 0.099 milliseconds on the current dataset; an extra index would add write cost without measured benefit.
+
+### Evidence
+
+Focused tests returned two in-period approvals with weighted cost five, excluded a 31-day-old row, produced two daily trend rows, rejected an unsupported period, and proved a closed PostgreSQL pool did not stop `/v1/check`. In Compose, analytics returned 503 after 1.008 seconds during a PostgreSQL outage while a decision returned 200 in 13.8 milliseconds. The worker buffered and later recovered that event, after which reporting included it.
+
+### Tradeoff carried forward
+
+Approval history cannot truthfully report rejected attempts, all HTTP outcomes, or response latency. V16 should add low-cardinality operational metrics for those signals. Billing history remains exact approved usage; operational telemetry remains a separate concern.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:

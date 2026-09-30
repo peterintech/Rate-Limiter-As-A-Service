@@ -202,13 +202,29 @@ The Redis Stream is now a finite delivery buffer with an explicit fail-closed ad
 - A Compose outage experiment filled a three-entry stream, observed HTTP 503 with an unchanged token value, then drained it and restored HTTP 200 without restarting the API.
 - Entry count bounds queue cardinality but does not replace byte-level Redis memory monitoring or production capacity sizing.
 
+## V15: historical approved-usage reporting
+
+Durable approval history is now available through read-only HTTP endpoints.
+
+- Summary and daily-trend routes accept only 10, 15, or 30-day periods.
+- Optional client and resource parameters apply exact filters.
+- Summary reports approval count, weighted cost, first/latest approval, and per-policy totals.
+- Trends report daily approval count and weighted cost per policy.
+- Empty reports return stable empty arrays, zero totals, and null timestamps.
+- Handwritten reporting SQL is compiled into Go code by sqlc.
+- The API uses a reconnecting PostgreSQL pool and a one-second analytics deadline.
+- PostgreSQL availability is not required for `/v1/check`; analytics returns bounded HTTP 503 independently.
+- The current approved-request schema cannot report rejected attempts or HTTP response time, and V15 does not infer them.
+- `EXPLAIN ANALYZE` completed the current one-page scan in 0.099 milliseconds, so no additional index was justified yet.
+- During the Compose outage experiment, analytics returned 503 in 1.008 seconds while a rate-limit decision returned 200 in 13.8 milliseconds and was later persisted after recovery.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
-- There is no multi-host failure isolation, backlog alerting, analytics API, or dashboard yet.
+- There is no multi-host failure isolation, external backlog alert delivery, complete decision/latency telemetry, or dashboard yet.
 - A prolonged worker or PostgreSQL outage stops new approvals at the configured backlog limit; external alert delivery is not implemented yet.
 
 ## Current acceptance criteria
@@ -229,6 +245,7 @@ The service is not production-ready:
 - Every consumed approval is stored once in PostgreSQL before its exact Redis entry is removed.
 - Abandoned pending approvals can be claimed by another worker without duplicating history.
 - A full approval-event backlog refuses new approvals without spending quota, and admission resumes after the worker drains it.
+- Approved usage and weighted-cost trends are queryable for 10, 15, and 30-day periods without making PostgreSQL part of rate-limit enforcement.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.
