@@ -265,7 +265,7 @@ func newRedisTestMuxWithBacklog(t *testing.T, client *redis.Client, policies rat
 	breakerConfig := ratelimiter.CircuitBreakerConfig{
 		FailureThreshold: 3,
 		OpenTimeout:      time.Second,
-		DecisionTimeout:  100 * time.Millisecond,
+		DecisionTimeout:  time.Second,
 	}
 	protectedLimiter, err := ratelimiter.NewCircuitBreakerLimiter(limiter, breakerConfig)
 	if err != nil {

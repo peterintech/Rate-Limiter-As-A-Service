@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterintech/global-rate-limiter/internal/ratelimiter"
 	"go.uber.org/zap"
 )
@@ -20,6 +21,7 @@ type application struct {
 	logger         *zap.SugaredLogger
 	rateLimiter    ratelimiter.Limiter
 	readinessCheck func(context.Context) error
+	database       *pgxpool.Pool
 }
 
 func (app *application) mount() *chi.Mux {
@@ -35,6 +37,8 @@ func (app *application) mount() *chi.Mux {
 		r.Get("/health", app.healthCheckHandler)
 		r.Get("/readiness", app.readinessCheckHandler)
 		r.Post("/check", app.checkRateLimitHandler)
+		r.Get("/analytics/summary", app.approvalSummaryHandler)
+		r.Get("/analytics/trends", app.approvalTrendsHandler)
 	})
 
 	return r

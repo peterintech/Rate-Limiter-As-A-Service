@@ -17,6 +17,12 @@ func (app *application) serviceUnavailableError(w http.ResponseWriter, r *http.R
 	writeErrorJSON(w, http.StatusServiceUnavailable, "rate-limit service temporarily unavailable")
 }
 
+func (app *application) analyticsUnavailableError(w http.ResponseWriter, r *http.Request, err error) {
+	app.logger.Errorw("analytics dependency unavailable", "method", r.Method, "path", r.URL.Path, "error", err)
+	w.Header().Set("Retry-After", "1")
+	writeErrorJSON(w, http.StatusServiceUnavailable, "analytics temporarily unavailable")
+}
+
 func retryAfterSeconds(duration time.Duration) string {
 	seconds := (duration + time.Second - 1) / time.Second
 	return strconv.FormatInt(int64(seconds), 10)

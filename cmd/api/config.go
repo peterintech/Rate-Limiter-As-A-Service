@@ -14,6 +14,8 @@ import (
 type config struct {
 	addr                string
 	env                 string
+	databaseURL         string
+	analyticsTimeout    time.Duration
 	redisCfg            redisConfig
 	circuitBreakerCfg   ratelimiter.CircuitBreakerConfig
 	redisLimiterCfg     ratelimiter.RedisTokenBucketConfig
@@ -40,10 +42,16 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	analyticsTimeout, err := positiveDuration("ANALYTICS_QUERY_TIMEOUT", "1s")
+	if err != nil {
+		return config{}, err
+	}
 
 	return config{
 		addr:              fmt.Sprintf(":%s", env.GetEnv("PORT", "8080")),
 		env:               env.GetEnv("ENV", "development"),
+		databaseURL:       env.GetEnv("DATABASE_URL", "postgres://rate_limiter:rate_limiter@localhost:5433/rate_limiter?sslmode=disable"),
+		analyticsTimeout:  analyticsTimeout,
 		redisCfg:          redisCfg,
 		circuitBreakerCfg: circuitBreakerCfg,
 		redisLimiterCfg: ratelimiter.RedisTokenBucketConfig{
