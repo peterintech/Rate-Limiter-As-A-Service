@@ -1,0 +1,64 @@
+groups:
+  - name: rate-limiter-availability
+    rules:
+      - alert: RateLimiterInstanceDown
+        expr: up{job="rate-limiter-api"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiter API instance is unavailable"
+          description: "{{ $labels.instance }} has not been scraped successfully for one minute."
+
+      - alert: RateLimiterDeploymentDown
+        expr: absent(up{job="rate-limiter-api"}) or sum(up{job="rate-limiter-api"}) == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "All rate limiter API instances are unavailable"
+          description: "Prometheus cannot reach any rate limiter API instance."
+
+  - name: rate-limiter-decisions
+    rules:
+      - alert: RateLimiterDependencyUnavailable
+        expr: sum(rate(rate_limiter_decisions_total{outcome="dependency_unavailable"}[1m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rate limiter dependency failures are continuing"
+          description: "Authoritative rate limit decisions have failed continuously for one minute."
+
+      - alert: RateLimiterApprovalBacklogFull
+        expr: sum(increase(rate_limiter_decisions_total{outcome="backlog_full"}[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Approval event backlog is full"
+          description: "At least one otherwise valid approval was refused to protect unpersisted history."
+
+      - alert: RateLimiterHighDecisionLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(rate_limiter_decision_duration_seconds_bucket[5m]))) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiter p95 decision latency is high"
+          description: "Cluster p95 decision latency has remained above 10 milliseconds for five minutes."
+
+      - alert: RateLimiterHighQuotaRejectionRatio
+        expr: |
+          (
+            sum(rate(rate_limiter_decisions_total{outcome="quota_rejected"}[5m]))
+            /
+            clamp_min(sum(rate(rate_limiter_decisions_total[5m])), 0.001)
+          ) > 0.25
+          and
+          sum(rate(rate_limiter_decisions_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiter quota rejection ratio is high"
+          description: "More than 25 percent of decisions are quota rejections while traffic exceeds one request per second."
