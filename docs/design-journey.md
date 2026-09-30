@@ -450,6 +450,40 @@ Focused tests returned two in-period approvals with weighted cost five, excluded
 
 Approval history cannot truthfully report rejected attempts, all HTTP outcomes, or response latency. V16 should add low-cardinality operational metrics for those signals. Billing history remains exact approved usage; operational telemetry remains a separate concern.
 
+## V16: measure the live decision path
+
+### Problem
+
+PostgreSQL answered historical approved-usage questions, but it deliberately contained no quota rejections, invalid requests, dependency failures, backlog refusals, or request durations. Operators could not see current decision behavior across the two API instances without inspecting individual logs.
+
+### Options considered
+
+- Expand PostgreSQL history to store every HTTP attempt and calculate operational views from SQL.
+- Parse application logs into metrics.
+- Expose low-cardinality Prometheus metrics from each API process and aggregate them outside the decision path.
+
+### Decision
+
+Each API now exposes a decision counter, a complete-decision duration histogram, and an in-flight gauge through a private `/metrics` endpoint. Prometheus scrapes both instances every five seconds and retains local samples for 30 days. Public Nginx gateways explicitly block the metrics route.
+
+### Why
+
+PostgreSQL is the durable ledger for approved weighted usage; changing that contract to serve monitoring would mix billing correctness with short-lived operational analysis. Log-derived metrics would require another pipeline before queries were reliable. Prometheus provides the right counter, histogram, and gauge semantics while remaining independent of request success.
+
+Only bounded outcome and configured-resource labels are exported. `client_id` is excluded and arbitrary resources are normalized to `unknown`, preventing users from creating an unbounded number of time series. Histograms allow valid cluster-wide percentile calculation; per-instance summary quantiles would not aggregate correctly.
+
+Prometheus 3.5 was selected because it is the long-term-support series, even though newer feature releases exist. Its local volume is sufficient for this teaching environment but is not replicated monitoring storage.
+
+### Evidence
+
+An application test recorded allowed, quota-rejected, invalid-request, and unknown-policy outcomes, one duration observation per decision, zero remaining in-flight work, and no client or arbitrary resource values. In Compose, Prometheus reported both API targets healthy and collected decisions from both instances. A full bucket spend returned 200, the next request returned 429, and the rejection appeared separately from invalid and unknown-policy traffic. Both gateways returned 404 for `/metrics`.
+
+Stopping Prometheus did not affect the decision path: a rate-limit check and liveness check both returned 200. Restarting it restored two healthy scrape targets without restarting either API.
+
+### Tradeoff carried forward
+
+Raw PromQL proves the signals exist, but it is not yet a concise operational view. There are no curated panels or justified alert thresholds. V17 can add Grafana only now that the underlying metrics and their failure isolation have been demonstrated.
+
 ## How to evaluate future phases
 
 Future phases should keep the same evidence trail:

@@ -6,7 +6,7 @@ An intentionally evolutionary Go implementation of the qualification brief. The 
 
 Read [`docs/design-journey.md`](docs/design-journey.md) before treating the current branch as the complete story. It explains the measured failure in every phase, the alternatives considered, why one option was selected, and the tradeoff deliberately carried into the next phase. The phase branches are implementation checkpoints; the design journey is the guide connecting them.
 
-## Current scope: V15
+## Current scope: V16
 
 - Contract and explicit assumptions in [`docs/requirements.md`](docs/requirements.md)
 - Phase-by-phase decisions and tradeoffs in [`docs/design-journey.md`](docs/design-journey.md)
@@ -51,9 +51,14 @@ Read [`docs/design-journey.md`](docs/design-journey.md) before treating the curr
 - PostgreSQL-backed approved-usage summaries for trailing 10, 15, and 30-day periods
 - Daily approval and weighted-cost trends with optional client/resource filters
 - A reconnecting analytics dependency that can fail without stopping rate-limit decisions
+- Per-instance Prometheus counters for every decision outcome
+- Aggregatable decision-duration histograms and an in-flight request gauge
+- Bounded `outcome` and `resource` labels without client identifiers
+- Private scraping of both API instances with 30-day local retention
+- Monitoring failure isolated from rate-limit decisions
 - Application wiring with Chi, injected interfaces, Zap logging, environment configuration, and graceful shutdown
 
-Not included yet: multi-host deployment, external alert delivery, complete decision/latency telemetry, or a dashboard.
+Not included yet: multi-host deployment, external alert delivery, a curated dashboard, or alert rules.
 
 ## Run
 
@@ -65,6 +70,7 @@ The Compose stack runs two API instances against a Sentinel-managed Redis primar
 
 Redis Commander is available at `http://localhost:8082` and lists both Redis data nodes. Their names describe their startup roles; Sentinel may reverse those roles after failover.
 The worker exposes liveness, readiness, and backlog status at `http://localhost:8085/v1/health`, `/v1/readiness`, and `/v1/status`.
+Prometheus is available at `http://localhost:9090` and scrapes both APIs inside the Compose network. The public gateways deliberately return 404 for `/metrics`.
 
 ```text
 curl -i -X POST http://localhost:8083/v1/check -H "Content-Type: application/json" -d '{"client_id":"client-a","resource":"openai","cost":1}'
@@ -93,6 +99,7 @@ See [`docs/approval-events.md`](docs/approval-events.md) for the approval-event 
 See [`docs/durable-approval-history.md`](docs/durable-approval-history.md) for PostgreSQL persistence, Goose/sqlc organization, at-least-once delivery, safe cleanup, and outage recovery.
 See [`docs/backlog-protection.md`](docs/backlog-protection.md) for the V14 failure policy, atomic admission rule, worker signals, and recovery evidence.
 See [`docs/historical-usage-reporting.md`](docs/historical-usage-reporting.md) for V15's reporting contract, query-plan evidence, outage isolation, and explicit data limitations.
+See [`docs/operational-metrics.md`](docs/operational-metrics.md) for V16's metrics contract, cardinality choices, PromQL examples, and outage-isolation evidence.
 
 ## Repository layout
 
@@ -102,6 +109,7 @@ cmd/worker/               approval consumer composition, configuration, and life
 benchmarks/               algorithm experiments and HTTP load-test inputs
 deploy/nginx/             comparable single-instance and distributed gateways
 deploy/redis/             Sentinel configuration template
+deploy/prometheus/        Prometheus scrape configuration
 internal/env/             environment lookup helper
 internal/events/          Redis consumption, PostgreSQL transaction, and cleanup workflow
 internal/database/        sqlc-generated PostgreSQL models and queries
@@ -118,4 +126,4 @@ The HTTP layer owns request parsing and orchestration. Rate limiting sits behind
 
 ## Next milestone
 
-Approved usage is now queryable without putting PostgreSQL on the decision path. The next phase will measure every decision outcome and HTTP latency through low-cardinality operational metrics, providing the missing data for complete traffic and response-time views before a dashboard is built.
+Operational outcomes and decision latency are now measurable across both API instances without putting Prometheus on the decision path. The next phase will turn these signals into a focused Grafana dashboard and justify alert thresholds from observed behavior.

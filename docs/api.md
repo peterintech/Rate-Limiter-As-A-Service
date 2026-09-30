@@ -89,3 +89,9 @@ GET /v1/analytics/trends?days=15&client_id=client-b
 Both analytics endpoints return `400` unless `days` is exactly `10`, `15`, or `30`. They return a bounded `503` when PostgreSQL is unavailable. Analytics failure does not affect `/v1/check` because PostgreSQL is not part of the rate-limit decision path.
 
 These endpoints report approved usage only. The current durable event contract does not contain rejected attempts or HTTP response latency, so those values are not inferred from incomplete data.
+
+## Internal `GET /metrics`
+
+Each API process exposes Prometheus metrics on its direct service listener. This route is for the monitoring network, not callers of the rate-limit API. The single-instance and distributed Nginx gateways both return HTTP 404 for `/metrics`.
+
+The metrics use bounded `outcome` and configured `resource` labels. They never expose `client_id`; unknown resource values are normalized to `unknown`. See [`operational-metrics.md`](operational-metrics.md) for the complete contract and example PromQL.

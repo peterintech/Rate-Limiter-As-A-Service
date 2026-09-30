@@ -218,13 +218,30 @@ Durable approval history is now available through read-only HTTP endpoints.
 - `EXPLAIN ANALYZE` completed the current one-page scan in 0.099 milliseconds, so no additional index was justified yet.
 - During the Compose outage experiment, analytics returned 503 in 1.008 seconds while a rate-limit decision returned 200 in 13.8 milliseconds and was later persisted after recovery.
 
+## V16: operational decision metrics
+
+The API now exposes Prometheus metrics for the complete live decision path while keeping billing history in PostgreSQL.
+
+- `rate_limiter_decisions_total` counts completed decisions by bounded outcome and configured resource.
+- `rate_limiter_decision_duration_seconds` records complete handler latency in aggregatable histogram buckets.
+- `rate_limiter_in_flight_requests` reports checks currently executing in each API process.
+- Outcomes distinguish allowed, quota-rejected, invalid-request, unknown-policy, backlog-full, dependency-unavailable, and unexpected internal failures.
+- `client_id` is never a metric label. Unknown or unconfigured resources are normalized to `unknown` rather than becoming attacker-controlled time series.
+- Prometheus scrapes both API instances every five seconds and retains samples in a named local volume for 30 days.
+- Both Nginx gateways return HTTP 404 for `/metrics`; scraping occurs only through private Compose service addresses.
+- Histograms are used because their buckets can be aggregated across API instances before calculating a percentile.
+- Counters reset when an API process restarts; operational queries use `rate()` or `increase()` rather than treating raw values as durable history.
+- The Compose experiment observed two healthy scrape targets and per-instance decision counts from traffic through the distributed gateway.
+- Stopping Prometheus did not interrupt rate-limit decisions or liveness, and scraping recovered without restarting either API.
+- Local Prometheus storage is neither replicated nor a billing ledger. Losing its volume can lose operational history without changing authoritative rate-limit or approved-usage state.
+
 ## Intentionally unmet requirements
 
 The service is not production-ready:
 
 - The local Redis topology does not survive loss of the Docker host and does not provide synchronous, lossless replication.
 - Complete Redis unavailability still prevents authoritative decisions, but now fails closed within the configured deadline.
-- There is no multi-host failure isolation, external backlog alert delivery, complete decision/latency telemetry, or dashboard yet.
+- There is no multi-host failure isolation, external backlog alert delivery, curated dashboard, or alert routing yet.
 - A prolonged worker or PostgreSQL outage stops new approvals at the configured backlog limit; external alert delivery is not implemented yet.
 
 ## Current acceptance criteria
@@ -246,6 +263,8 @@ The service is not production-ready:
 - Abandoned pending approvals can be claimed by another worker without duplicating history.
 - A full approval-event backlog refuses new approvals without spending quota, and admission resumes after the worker drains it.
 - Approved usage and weighted-cost trends are queryable for 10, 15, and 30-day periods without making PostgreSQL part of rate-limit enforcement.
+- Every decision outcome and complete handler latency are exposed with bounded metric labels and can be aggregated across API instances.
+- Prometheus failure does not stop rate-limit decisions, and public gateways do not expose the metrics endpoint.
 - Redis primary loss promotes the replica and restores shared decisions without restarting the APIs.
 - Redis bucket state survives complete Redis process replacement when the named AOF volumes are retained.
 - `go test ./...` passes.
